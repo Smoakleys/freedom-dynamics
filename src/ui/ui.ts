@@ -1,6 +1,6 @@
 // DOM UI: war HUD, production drawer, modals, toasts.
 
-import { LINES, BALANCE, adversaryName, randomCompanyName, AAR_EUPHEMISMS, AAR_COMMENDATIONS } from '../game/content';
+import { LINES, BALANCE, adversaryName, randomCompanyName, sectorName, AAR_EUPHEMISMS, AAR_COMMENDATIONS } from '../game/content';
 import { bulkCost, maxAffordable, buy, hire, batchDuration, batchRevenue, lobbyingGain, nextMilestone } from '../game/economy';
 import { fmt, fmtMoney, fmtDuration } from '../game/format';
 import { newGame, type GameState, type GameEvent } from '../game/state';
@@ -208,7 +208,7 @@ export class UI {
 
     // Prestige button.
     const gain = lobbyingGain(gs);
-    if (gs.day >= BALANCE.PRESTIGE_MIN_DAY && gain > gs.lobbyingPower) {
+    if (gs.sector >= BALANCE.PRESTIGE_MIN_SECTOR && gain > gs.lobbyingPower) {
       this.prestigeBtn.style.display = 'block';
       this.prestigeBtn.textContent = `★ END FISCAL YEAR ${gs.fiscalYear} — claim ${fmt(gain)} LOBBYING POWER (+${gain * 2}% forever)`;
     } else {
@@ -220,10 +220,10 @@ export class UI {
   frame(): void {
     const gs = this.gs;
     this.fundsEl.textContent = fmtMoney(gs.funds);
-    this.dayEl.textContent = `DAY ${gs.day}`;
-    this.advEl.textContent = `vs ${adversaryName(gs.day).toUpperCase()}`;
+    this.dayEl.textContent = sectorName(gs.sector, gs.fiscalYear).toUpperCase();
+    this.advEl.textContent = `SECTOR ${gs.sector + 1} · vs ${adversaryName(gs.sector).toUpperCase()}`;
     this.frontFill.style.width = `${(gs.front * 100).toFixed(1)}%`;
-    this.frontLabel.textContent = `FRONT LINE — ${(gs.front * 100).toFixed(0)}% · FY${gs.fiscalYear}`;
+    this.frontLabel.textContent = `SECTOR ADVANCE — ${(gs.front * 100).toFixed(0)}% · ${gs.sectorsWonTotal} ANNEXED · FY${gs.fiscalYear}`;
     for (let i = 0; i < LINES.length; i++) {
       const ls = gs.lines[i];
       const fill = this.rows[i].fillEl;
@@ -242,8 +242,8 @@ export class UI {
   onEvents(events: GameEvent[]): void {
     this.chyron.onEvents(this.gs, events);
     for (const e of events) {
-      if (e.type === 'dayWon') {
-        this.toast(`★ DAY ${e.day} WON — war bond payout ${fmtMoney(e.bond)}`);
+      if (e.type === 'sectorWon') {
+        this.toast(`★ ${sectorName(e.sector, this.gs.fiscalYear).toUpperCase()} ANNEXED — war bond ${fmtMoney(e.bond)}`);
       }
     }
   }
@@ -316,8 +316,8 @@ export class UI {
         <div class="sub">WHILE YOU WERE AWAY (${fmtDuration(report.seconds)})</div>
         <table>
           <tr><td>Revenue recognized</td><td>${fmtMoney(report.earned)}</td></tr>
-          <tr><td>Days won</td><td>${report.daysWon}</td></tr>
-          <tr><td>Front position</td><td>Day ${report.endDay}</td></tr>
+          <tr><td>Sectors annexed</td><td>${report.sectorsWon}</td></tr>
+          <tr><td>Front now contesting</td><td>${sectorName(report.endSector, this.gs.fiscalYear)}</td></tr>
           <tr><td>Units delivered</td><td>${fmt(report.unitsDelivered)}</td></tr>
           <tr><td>${euphemism}</td><td>${fmt(report.unitsLost)}</td></tr>
           <tr><td>Rules of engagement</td><td><span class="redacted">redacted</span></td></tr>
@@ -367,6 +367,6 @@ export function applyPrestige(gs: GameState): GameState {
   fresh.founded = true;
   fresh.lobbyingPower = gain;
   fresh.fiscalYear = gs.fiscalYear + 1;
-  fresh.daysWonTotal = gs.daysWonTotal;
+  fresh.sectorsWonTotal = gs.sectorsWonTotal;
   return fresh;
 }

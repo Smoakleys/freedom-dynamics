@@ -36,7 +36,7 @@ export class Effects {
 
     const fireGeo = new THREE.IcosahedronGeometry(0.6, 0);
     for (let i = 0; i < 26; i++) {
-      const fire = new THREE.Mesh(fireGeo, new THREE.MeshBasicMaterial({ color: 0xffa33c, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false }));
+      const fire = new THREE.Mesh(fireGeo, new THREE.MeshBasicMaterial({ color: 0xff7a2e, transparent: true, opacity: 1, depthWrite: false }));
       const smoke = new THREE.Mesh(fireGeo, new THREE.MeshLambertMaterial({ color: 0x4a4642, transparent: true, opacity: 0.55 }));
       fire.visible = smoke.visible = false;
       scene.add(fire); scene.add(smoke);

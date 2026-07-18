@@ -18,7 +18,13 @@ export function load(): GameState | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as GameState;
+    const parsed = JSON.parse(raw) as GameState & { day?: number; daysWonTotal?: number };
+    // v1 → v2: day-based war became territorial sectors.
+    if ((parsed.version ?? 1) < 2) {
+      parsed.sector = Math.max(0, (parsed.day ?? 1) - 1);
+      parsed.sectorsWonTotal = parsed.daysWonTotal ?? 0;
+      parsed.version = 2;
+    }
     // Merge onto a fresh state so new fields/lines get defaults after updates.
     const base = newGame();
     const gs: GameState = { ...base, ...parsed, stats: { ...base.stats, ...(parsed.stats ?? {}) } };

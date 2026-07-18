@@ -124,10 +124,41 @@ export const LINES: LineDef[] = [
 // Owned-count milestones: each reached threshold doubles that line's production speed.
 export const MILESTONES = [10, 25, 50, 100, 200, 300, 400, 500, 750, 1000];
 
+// ————— Theater sectors —————
+// Progression is territorial: the front pushes through an endless chain of
+// named sectors. Beating a sector annexes it, pays a bond, and rolls the fog
+// back off the next stretch of map.
+
+const SECTOR_ADJ = ['Copper', 'Rust', 'Bleak', 'Powder', 'Glass', 'Static', 'Iron', 'Cinder', 'Mirror', 'Grim', 'Hollow', 'Broken', 'Silent', 'Red', 'Dust', 'Granite'];
+const SECTOR_NOUN = ['Gulch', 'Flats', 'Ridge', 'Basin', 'Valley', 'Fork', 'Pass', 'Hills', 'Barrens', 'Crossing', 'Steppe', 'Reach', 'Hollows', 'Plateau', 'Marsh', 'Divide'];
+const SECTOR_TYPE = ['', '', '', ' Refinery', ' Junction', ' Depot', ' Exclusion Zone', ' Testing Range', ' Logistics Hub', ' Tax Haven'];
+
+const RENAME_SUFFIX = ['ville', 'burg', ' Heights', ' Landing', ' Falls', ' Estates™', ' Freehold', ' Campus', ' Annex', ' Gardens'];
+
+function seededPick<T>(arr: T[], seed: number): T {
+  // Deterministic pick so sector names are stable across sessions.
+  const h = Math.abs(Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b)) % arr.length;
+  return arr[h];
+}
+
+export function sectorName(index: number, fiscalYear: number): string {
+  const s = index * 31 + fiscalYear * 977;
+  return `${seededPick(SECTOR_ADJ, s)} ${seededPick(SECTOR_NOUN, s + 7)}${seededPick(SECTOR_TYPE, s + 13)}`;
+}
+
+export function capturedName(company: string, index: number): string {
+  const brand = (company.split(' ')[0] || 'Freedom');
+  return `${brand}${RENAME_SUFFIX[index % RENAME_SUFFIX.length]}`;
+}
+
 export const BALANCE = {
-  // Adversary strength for day d = ADV_BASE * ADV_GROWTH^(d-1)
+  // Adversary strength defending sector s = ADV_BASE * ADV_GROWTH^s
   ADV_BASE: 22,
   ADV_GROWTH: 1.31,
+  // Theater geometry: world-units of map per sector along the advance axis,
+  // and how many sectors of map are visible past the front before the fog.
+  SECTOR_SPACING: 26,
+  REVEAL_AHEAD: 1.35,
   // Front line movement per second = FRONT_K * (forceRatio - 1), see battle.ts
   FRONT_K: 0.004,
   FRONT_RETREAT_SCALE: 0.5,   // retreat is slower than advance (you never quite collapse)
@@ -136,19 +167,19 @@ export const BALANCE = {
   // Attrition: your standing army loses ADV_DPS_FRAC*A + SELF_ATTRITION*P power/sec
   ADV_DPS_FRAC: 0.03,
   SELF_ATTRITION: 0.005,
-  // Winning day d pays a war-bond bonus of BOND_MULT * A(d) dollars
+  // Annexing sector s pays a war-bond bonus of BOND_MULT * A(s) dollars
   BOND_MULT: 18,
   // Prestige: lobbying power earned = LP_RATE * sqrt(lifetimeEarnings / LP_SCALE)
   LP_RATE: 1,
   LP_SCALE: 5e7,
   LP_REVENUE_BONUS: 0.02,     // each LP: +2% revenue
   LP_POWER_BONUS: 0.02,       // each LP: +2% unit power
-  PRESTIGE_MIN_DAY: 8,
+  PRESTIGE_MIN_SECTOR: 8,
   OFFLINE_CAP_HOURS: 72,
   TICK: 0.25                  // sim timestep, seconds
 };
 
-// The Adversary's rebrand rotation — one per day, cycling with escalating menace.
+// The Adversary's rebrand rotation — one per sector, cycling with escalating menace.
 export const ADVERSARY_NAMES = [
   'The Adversary', 'The Near-Peer Threat', 'Anomalous Belligerents',
   'The Non-Allied Entity', 'Gray-Zone Actors', 'The Pacing Challenge',
@@ -159,8 +190,8 @@ export const ADVERSARY_NAMES = [
   'The Backorder of Evil', 'Contested Environment Enjoyers', 'Q4 Headwinds'
 ];
 
-export function adversaryName(day: number): string {
-  return ADVERSARY_NAMES[(day - 1) % ADVERSARY_NAMES.length];
+export function adversaryName(sector: number): string {
+  return ADVERSARY_NAMES[((sector % ADVERSARY_NAMES.length) + ADVERSARY_NAMES.length) % ADVERSARY_NAMES.length];
 }
 
 // ————— Chyron copy —————
@@ -204,14 +235,16 @@ export const CHYRON_REACTIVE = {
     '{COMPANY} HIRES {HIRE}; ETHICS OFFICE "LOOKING INTO IT"',
     '{HIRE} JOINS {COMPANY}; DENIES EVERYTHING PREEMPTIVELY'
   ],
-  dayWon: [
-    'DAY {DAY} DECLARED WON; {ADVERSARY} REGROUPING',
-    'VICTORY ON DAY {DAY}; PARADE BUDGET EXCEEDS BATTLE BUDGET',
-    'FRONT LINE ADVANCES; {ADVERSARY} ISSUES STRONGLY WORDED PRESS RELEASE'
+  sectorWon: [
+    '{SECTOR} ANNEXED; {ADVERSARY} REGROUPING',
+    '{SECTOR} FALLS; PARADE BUDGET EXCEEDS BATTLE BUDGET',
+    '{SECTOR} LIBERATED INTO RECEIVERSHIP; LOCALS "PROCESSING"',
+    '{SECTOR} NOW {RENAMED}; SIGNAGE CONTRACT AWARDED (NO-BID)'
   ],
-  newDay: [
-    'DAY {DAY}: {ADVERSARY} ARRIVES; ANALYSTS BULLISH',
-    'DAY {DAY} BEGINS; {ADVERSARY} DECLARED "PACING THREAT OF THE WEEK"'
+  newSector: [
+    'FRONT REACHES {SECTOR}; {ADVERSARY} DIGS IN',
+    '{SECTOR} DECLARED "STRATEGICALLY PRICELESS" BY OWNER OF ADJACENT LAND',
+    'FOG OF WAR LIFTS OVER {SECTOR}; ANALYSTS BULLISH'
   ],
   milestone: [
     '{LINE} DOUBLES OUTPUT; WORKERS PROMISED PIZZA',

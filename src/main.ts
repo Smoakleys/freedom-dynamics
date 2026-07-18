@@ -3,7 +3,7 @@ import { newGame, type GameState } from './game/state';
 import { load, save } from './game/save';
 import { tick, fastForward } from './game/sim';
 import { UI, applyPrestige } from './ui/ui';
-import { Battlefield } from './render/battlefield';
+import { BoardView } from './render/boardview';
 import { CHYRON_REACTIVE } from './game/content';
 
 let gs: GameState = load() ?? newGame();
@@ -13,7 +13,7 @@ const awaySeconds = (Date.now() - gs.lastSeen) / 1000;
 const report = gs.founded && awaySeconds > 60 ? fastForward(gs, awaySeconds) : null;
 
 const ui = new UI(gs);
-const battlefield = new Battlefield(document.getElementById('battle-canvas') as HTMLCanvasElement);
+const battlefield = new BoardView(document.getElementById('battle-canvas') as HTMLCanvasElement, gs);
 
 ui.onPrestige = () => {
   gs = applyPrestige(gs);
@@ -26,7 +26,7 @@ ui.onPrestige = () => {
 
 function begin(): void {
   document.getElementById('splash')?.remove();
-  if (report && (report.earned > 0 || report.daysWon > 0)) {
+  if (report && (report.earned > 0 || report.sectorsWon > 0)) {
     ui.afterAction(report, () => { /* resume */ });
   }
 

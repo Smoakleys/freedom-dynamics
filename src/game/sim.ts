@@ -44,19 +44,18 @@ export function tick(gs: GameState, dt: number): GameEvent[] {
 export interface OfflineReport {
   seconds: number;
   earned: number;
-  daysWon: number;
+  sectorsWon: number;
   unitsDelivered: number;
   unitsLost: number;
-  startDay: number;
-  endDay: number;
+  startSector: number;
+  endSector: number;
 }
 
 // Deterministic offline catch-up. 1s steps: 72h = 259k iterations, milliseconds in JS.
 export function fastForward(gs: GameState, seconds: number): OfflineReport {
   const capped = Math.min(seconds, BALANCE.OFFLINE_CAP_HOURS * 3600);
-  const startFunds = gs.funds + 0;
   const startEarnings = gs.lifetimeEarnings;
-  const startDay = gs.day;
+  const startSector = gs.sector;
   const startLost = gs.stats.unitsLost;
   let delivered = 0;
   const events: GameEvent[] = [];
@@ -76,10 +75,10 @@ export function fastForward(gs: GameState, seconds: number): OfflineReport {
   return {
     seconds: capped,
     earned: gs.lifetimeEarnings - startEarnings,
-    daysWon: gs.day - startDay,
+    sectorsWon: gs.sector - startSector,
     unitsDelivered: delivered,
     unitsLost: gs.stats.unitsLost - startLost,
-    startDay,
-    endDay: gs.day
+    startSector,
+    endSector: gs.sector
   };
 }

@@ -5,8 +5,8 @@ import { LINES, BALANCE } from './content';
 import { powerMult } from './economy';
 import type { GameState, GameEvent } from './state';
 
-export function adversaryStrength(day: number): number {
-  return BALANCE.ADV_BASE * Math.pow(BALANCE.ADV_GROWTH, day - 1);
+export function adversaryStrength(sector: number): number {
+  return BALANCE.ADV_BASE * Math.pow(BALANCE.ADV_GROWTH, sector);
 }
 
 // Total standing army power.
@@ -19,7 +19,7 @@ export function armyPower(gs: GameState): number {
 
 // One battle tick of `dt` seconds. Mutates gs, pushes events.
 export function battleTick(gs: GameState, dt: number, events: GameEvent[]): void {
-  const A = adversaryStrength(gs.day);
+  const A = adversaryStrength(gs.sector);
   const pm = powerMult(gs);
   let P = armyPower(gs);
 
@@ -54,13 +54,13 @@ export function battleTick(gs: GameState, dt: number, events: GameEvent[]): void
     const bond = BALANCE.BOND_MULT * A;
     gs.funds += bond;
     gs.lifetimeEarnings += bond;
-    events.push({ type: 'dayWon', day: gs.day, bond });
-    gs.daysWonTotal += 1;
-    gs.day += 1;
+    events.push({ type: 'sectorWon', sector: gs.sector, bond });
+    gs.sectorsWonTotal += 1;
+    gs.sector += 1;
     gs.front = BALANCE.FRONT_START;
-    // The counterattack scatters part of the standing army (keeps days honest
-    // without ever feeling like a loss — production replaces it fast).
+    // The counterattack scatters part of the standing army (keeps sector walls
+    // honest without ever feeling like a loss — production replaces it fast).
     for (const ls of gs.lines) ls.army *= 0.5;
-    events.push({ type: 'newDay', day: gs.day });
+    events.push({ type: 'newSector', sector: gs.sector });
   }
 }

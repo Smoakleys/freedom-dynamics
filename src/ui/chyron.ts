@@ -1,6 +1,6 @@
 // News chyron: scrolling ticker mixing static headlines with reactive ones.
 
-import { CHYRON_STATIC, CHYRON_REACTIVE, adversaryName, LINES } from '../game/content';
+import { CHYRON_STATIC, CHYRON_REACTIVE, adversaryName, LINES, sectorName, capturedName } from '../game/content';
 import { fmt } from '../game/format';
 import type { GameState, GameEvent } from '../game/state';
 
@@ -41,14 +41,15 @@ export class Chyron {
 
   onEvents(gs: GameState, events: GameEvent[]): void {
     for (const e of events) {
-      if (e.type === 'dayWon') {
-        this.push(pick(CHYRON_REACTIVE.dayWon)
-          .replace('{DAY}', String(e.day))
-          .replace('{ADVERSARY}', adversaryName(e.day)));
-      } else if (e.type === 'newDay') {
-        this.push(pick(CHYRON_REACTIVE.newDay)
-          .replace(/\{DAY\}/g, String(e.day))
-          .replace('{ADVERSARY}', adversaryName(e.day)));
+      if (e.type === 'sectorWon') {
+        this.push(pick(CHYRON_REACTIVE.sectorWon)
+          .replace('{SECTOR}', sectorName(e.sector, gs.fiscalYear))
+          .replace('{RENAMED}', capturedName(gs.company, e.sector))
+          .replace('{ADVERSARY}', adversaryName(e.sector)));
+      } else if (e.type === 'newSector') {
+        this.push(pick(CHYRON_REACTIVE.newSector)
+          .replace(/\{SECTOR\}/g, sectorName(e.sector, gs.fiscalYear))
+          .replace('{ADVERSARY}', adversaryName(e.sector)));
       } else if (e.type === 'milestone') {
         this.push(pick(CHYRON_REACTIVE.milestone).replace('{LINE}', LINES[e.line].name));
       } else if (e.type === 'firstUnit') {
