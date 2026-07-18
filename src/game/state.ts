@@ -38,6 +38,8 @@ export function newLineState(): LineState {
 }
 
 export function newGame(): GameState {
+  const lines = LINES.map(() => newLineState());
+  lines[0].owned = 1; // the company begins with one proud refurbished-rifle line
   return {
     version: 1,
     company: '',
@@ -48,7 +50,7 @@ export function newGame(): GameState {
     day: 1,
     front: 0.15,
     daysWonTotal: 0,
-    lines: LINES.map(() => newLineState()),
+    lines,
     lastSeen: Date.now(),
     founded: false,
     stats: { unitsLost: 0, daysWonOffline: 0, earnedOffline: 0 }
