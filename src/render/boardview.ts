@@ -45,6 +45,10 @@ export class BoardView {
   private paintedSector = -99;
   private seam: THREE.Line;
   private seamGeo = new THREE.BufferGeometry();
+  private seamGlow!: THREE.Mesh;
+  private seamGlowGeo = new THREE.BufferGeometry();
+  private shadowMat!: THREE.MeshBasicMaterial;
+  private shadowGeo!: THREE.PlaneGeometry;
   private pieces: Piece[] = [];
   private models = new Map<string, THREE.Object3D>();
   private modelsTinted = new Map<string, THREE.Object3D>();
@@ -68,18 +72,20 @@ export class BoardView {
   constructor(private canvas: HTMLCanvasElement, gs: GameState) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setClearColor(0x26343f);
+    this.renderer.setClearColor(0x22303a);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.18;
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.5, 500);
 
-    this.scene.add(new THREE.HemisphereLight(0xe8eef4, 0x9a8f78, 1.0));
-    const sun = new THREE.DirectionalLight(0xfff4dd, 1.1);
+    this.scene.add(new THREE.HemisphereLight(0xe8eef4, 0x9a8f78, 1.05));
+    const sun = new THREE.DirectionalLight(0xfff0d4, 1.35);
     sun.position.set(-30, 60, 20);
     this.scene.add(sun);
 
     this.board = generateBoard(gs.fiscalYear);
     this.mapTex = new THREE.CanvasTexture(this.mapCanvas);
     this.mapTex.colorSpace = THREE.SRGBColorSpace;
-    this.mapTex.anisotropy = 4;
+    this.mapTex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(BOARD_W, BOARD_H),
       new THREE.MeshLambertMaterial({ map: this.mapTex })
@@ -111,9 +117,28 @@ export class BoardView {
 
     this.seam = new THREE.Line(
       this.seamGeo,
-      new THREE.LineBasicMaterial({ color: 0xffb640, transparent: true, opacity: 0.9, linewidth: 2 })
+      new THREE.LineBasicMaterial({ color: 0xffd684, transparent: true, opacity: 0.9 })
     );
     this.scene.add(this.seam);
+    // Glow ribbon under the seam line — reads at every altitude.
+    this.seamGlow = new THREE.Mesh(
+      this.seamGlowGeo,
+      new THREE.MeshBasicMaterial({ color: 0xffa030, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+    );
+    this.scene.add(this.seamGlow);
+
+    // Shared blob-shadow texture for pieces.
+    const shCv = document.createElement('canvas');
+    shCv.width = shCv.height = 64;
+    const shCtx = shCv.getContext('2d')!;
+    const grad = shCtx.createRadialGradient(32, 32, 4, 32, 32, 30);
+    grad.addColorStop(0, 'rgba(0,0,0,0.5)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    shCtx.fillStyle = grad;
+    shCtx.fillRect(0, 0, 64, 64);
+    const shTex = new THREE.CanvasTexture(shCv);
+    this.shadowMat = new THREE.MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false });
+    this.shadowGeo = new THREE.PlaneGeometry(1.6, 1.6);
 
     this.effects = new Effects(this.scene);
     this.loadModels();
@@ -131,15 +156,17 @@ export class BoardView {
   private loadModels(): void {
     const loader = new GLTFLoader();
     const names = new Set([...FRIENDLY_MODELS, ...ENEMY_MODELS].filter(Boolean));
+    // Per-model target sizes — aircraft stay small so they read as air cover.
+    const SIZES: Record<string, number> = { Drone: 1.1, Jet: 1.35, Helicopter: 1.5, Soldier: 1.5 };
     for (const name of names) {
       loader.load(`./models/${name}.glb`, (gltf) => {
         const obj = gltf.scene;
-        // Normalize into a wrapper group: piece fits ~1.7 world units on its
+        // Normalize into a wrapper group: piece fits its target size on its
         // longest axis and stands ON the board (offsets baked on the inner
         // node so per-frame moves of the wrapper never wipe them).
         const box = new THREE.Box3().setFromObject(obj);
         const size = box.getSize(new THREE.Vector3());
-        const s = 1.7 / Math.max(size.x, size.y, size.z, 0.001);
+        const s = (SIZES[name] ?? 1.7) / Math.max(size.x, size.y, size.z, 0.001);
         obj.scale.setScalar(s);
         const c = box.getCenter(new THREE.Vector3());
         obj.position.set(-c.x * s, -box.min.y * s, -c.z * s);
@@ -176,7 +203,7 @@ export class BoardView {
         const out = base.clone();
         const bh = { h: 0, s: 0, l: 0 };
         out.getHSL(bh);
-        out.setHSL(bh.h, bh.s, Math.min(0.8, Math.max(0.15, hsl.l * 0.9 + 0.06)));
+        out.setHSL(bh.h, bh.s, Math.min(0.58, Math.max(0.16, hsl.l * 0.7 + 0.08)));
         return new THREE.MeshLambertMaterial({ color: out });
       });
       mesh.material = wasArray ? replaced : replaced[0];
@@ -280,21 +307,41 @@ export class BoardView {
       this.board.depthFields.clear();
     }
 
-    // Front seam: iso-line points sorted into a polyline.
+    // Front seam: ordered iso-line polyline + additive glow ribbon.
     const pts = frontLine(this.board, gs.sector, gs.front);
     if (pts.length > 1) {
-      pts.sort((a, b) => a.x - b.x);
       const arr = new Float32Array(pts.length * 3);
+      const ribbon = new Float32Array(pts.length * 2 * 3);
+      const glowW = 0.9 + clamp(this.dist / 60, 0, 1.6);
       for (let i = 0; i < pts.length; i++) {
         const w = gridToWorld(pts[i].x, pts[i].y);
         arr[i * 3] = w.x; arr[i * 3 + 1] = 0.25 + Math.sin(time * 3 + i) * 0.05; arr[i * 3 + 2] = w.z;
+        const nb = pts[Math.min(pts.length - 1, i + 1)];
+        const pv = pts[Math.max(0, i - 1)];
+        let nx = -(nb.y - pv.y), nz = nb.x - pv.x;
+        const nl = Math.hypot(nx, nz) || 1;
+        nx = nx / nl * glowW; nz = nz / nl * glowW;
+        const wl = gridToWorld(pts[i].x + nx, pts[i].y + nz);
+        const wr = gridToWorld(pts[i].x - nx, pts[i].y - nz);
+        ribbon[i * 6] = wl.x; ribbon[i * 6 + 1] = 0.12; ribbon[i * 6 + 2] = wl.z;
+        ribbon[i * 6 + 3] = wr.x; ribbon[i * 6 + 4] = 0.12; ribbon[i * 6 + 5] = wr.z;
       }
       this.seamGeo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
       this.seamGeo.attributes.position.needsUpdate = true;
-      this.seam.visible = true;
+      // Triangle-strip indices for the ribbon.
+      const idxArr: number[] = [];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = i * 2, b = i * 2 + 1, c = i * 2 + 2, d = i * 2 + 3;
+        idxArr.push(a, b, c, b, d, c);
+      }
+      this.seamGlowGeo.setAttribute('position', new THREE.BufferAttribute(ribbon, 3));
+      this.seamGlowGeo.setIndex(idxArr);
+      this.seamGlowGeo.attributes.position.needsUpdate = true;
+      this.seam.visible = this.seamGlow.visible = true;
       (this.seam.material as THREE.LineBasicMaterial).opacity = 0.65 + Math.sin(time * 2.5) * 0.2;
+      (this.seamGlow.material as THREE.MeshBasicMaterial).opacity = 0.3 + Math.sin(time * 2.1) * 0.12;
     } else {
-      this.seam.visible = false;
+      this.seam.visible = this.seamGlow.visible = false;
     }
 
     // Battle pieces along the seam.
@@ -381,13 +428,13 @@ export class BoardView {
     const room = show ? clamp(pts.length / 55, 0.3, 1) : 0;
     const want: { friendly: boolean; line: number }[] = [];
     if (show) {
-      const caps = [26, 10, 12, 10, 5, 4, 3, 0];
+      const caps = [34, 12, 8, 12, 6, 3, 4, 0];
       for (let i = 0; i < LINES.length; i++) {
         const n = Math.round(Math.min(caps[i], Math.sqrt(gs.lines[i].army) * (i === 0 ? 1.6 : 0.8)) * room);
         for (let k = 0; k < n; k++) want.push({ friendly: true, line: i });
       }
       const A = adversaryStrength(gs.sector);
-      const en = Math.round(Math.min(40, 4 * Math.pow(A, 0.24)) * room);
+      const en = Math.round(Math.min(48, 5 * Math.pow(A, 0.24)) * room);
       for (let k = 0; k < en; k++) want.push({ friendly: false, line: k % ENEMY_MODELS.length });
     }
 
@@ -401,6 +448,14 @@ export class BoardView {
         const w = want[i];
         const name = w.friendly ? FRIENDLY_MODELS[w.line] : ENEMY_MODELS[w.line];
         const mesh = name ? this.tinted(name, w.friendly) : this.fallbackPiece(w.friendly);
+        // Blob shadow for ground pieces (flyers cast none — cheaper and cleaner).
+        const flies = w.friendly ? (w.line === 2 || w.line === 5) : w.line === 2;
+        if (!flies) {
+          const sh = new THREE.Mesh(this.shadowGeo, this.shadowMat);
+          sh.rotation.x = -Math.PI / 2;
+          sh.position.y = 0.06;
+          mesh.add(sh);
+        }
         this.scene.add(mesh);
         this.pieces.push({
           mesh, slot: i, ord: w.friendly ? fi++ : ei++, friendly: w.friendly, line: w.line,
@@ -423,8 +478,9 @@ export class BoardView {
         p.z += dz / d * step;
         p.mesh.rotation.y = Math.atan2(dx, dz);
       }
-      const fly = p.friendly && (p.line === 2 || p.line === 5);
-      const bob = fly ? 2.2 + Math.sin(this.time * 2 + p.phase) * 0.3 : 0;
+      const fly = p.friendly ? (p.line === 2 || p.line === 5) : p.line === 2;
+      const alt = !fly ? 0 : p.friendly && p.line === 2 ? 2.4 : p.friendly ? 3.0 : 1.5;
+      const bob = fly ? alt + Math.sin(this.time * 2 + p.phase) * 0.25 : 0;
       p.mesh.position.set(p.x, bob, p.z);
       // Board-game readability: pieces grow a little as the camera rises.
       p.mesh.scale.setScalar(clamp(this.dist / 24, 1, 2.1));
