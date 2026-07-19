@@ -57,6 +57,8 @@ export interface OfflineReport {
   seconds: number;
   earned: number;
   territoriesWon: number;
+  nationsFallen: number;
+  researchDone: string[];
   unitsDelivered: number;
   unitsLost: number;
 }
@@ -67,6 +69,8 @@ export function fastForward(gs: GameState, seconds: number): OfflineReport {
   const startWon = gs.territoriesWonTotal;
   const startLost = gs.stats.unitsLost;
   let delivered = 0;
+  let nationsFallen = 0;
+  const researchDone: string[] = [];
   const events: GameEvent[] = [];
   let remaining = capped;
   while (remaining > 0) {
@@ -78,6 +82,8 @@ export function fastForward(gs: GameState, seconds: number): OfflineReport {
     for (let k = before; k < events.length; k++) {
       const e = events[k];
       if (e.type === 'delivered') delivered += e.count;
+      else if (e.type === 'nationFell') nationsFallen++;
+      else if (e.type === 'researchDone') researchDone.push(e.id);
     }
     events.length = 0;
   }
@@ -85,6 +91,8 @@ export function fastForward(gs: GameState, seconds: number): OfflineReport {
     seconds: capped,
     earned: gs.lifetimeEarnings - startEarnings,
     territoriesWon: gs.territoriesWonTotal - startWon,
+    nationsFallen,
+    researchDone,
     unitsDelivered: delivered,
     unitsLost: gs.stats.unitsLost - startLost
   };

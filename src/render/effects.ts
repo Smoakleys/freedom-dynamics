@@ -13,6 +13,7 @@ export class Effects {
   private beam: THREE.Mesh;
   private beamT = 1e9;
   private flashes: { mesh: THREE.Mesh; t: number }[] = [];
+  private waves: { mesh: THREE.Mesh; t: number; active: boolean; size: number }[] = [];
 
   constructor(private scene: THREE.Scene) {
     const tracerGeo = new THREE.BoxGeometry(0.9, 0.05, 0.05);
@@ -49,6 +50,30 @@ export class Effects {
     );
     this.beam.visible = false;
     scene.add(this.beam);
+
+    // Gold conquest waves: expanding flat rings for territory captures.
+    const ringGeo = new THREE.RingGeometry(0.82, 1, 40);
+    ringGeo.rotateX(-Math.PI / 2);
+    for (let i = 0; i < 4; i++) {
+      const mesh = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+        color: 0xf2c14e, transparent: true, opacity: 0.9,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+      }));
+      mesh.visible = false;
+      scene.add(mesh);
+      this.waves.push({ mesh, t: 0, active: false, size: 20 });
+    }
+  }
+
+  // The Risk moment: a gold shockwave rolls across a captured territory.
+  conquestWave(at: THREE.Vector3, size = 22): void {
+    for (const w of this.waves) {
+      if (w.active) continue;
+      w.active = true; w.t = 0; w.size = size;
+      w.mesh.position.set(at.x, 0.3, at.z);
+      w.mesh.visible = true;
+      return;
+    }
   }
 
   fireTracer(from: THREE.Vector3, to: THREE.Vector3, friendly: boolean): void {
@@ -126,6 +151,14 @@ export class Effects {
       // Reach exactly zero by the 1.6 cutoff — lingering ghost hexes read as
       // stuck geometry (reviewer B2).
       (b.smoke.material as THREE.MeshLambertMaterial).opacity = Math.max(0, 0.5 * (1 - k / 1.6));
+    }
+    for (const w of this.waves) {
+      if (!w.active) continue;
+      w.t += dt / 1.1;
+      if (w.t >= 1) { w.active = false; w.mesh.visible = false; continue; }
+      const e = 1 - Math.pow(1 - w.t, 2.4);
+      w.mesh.scale.setScalar(0.5 + e * w.size);
+      (w.mesh.material as THREE.MeshBasicMaterial).opacity = 0.85 * (1 - w.t);
     }
     if (this.beam.visible) {
       this.beamT += dt;

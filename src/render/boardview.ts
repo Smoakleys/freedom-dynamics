@@ -7,13 +7,13 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Board, depthField, frontLine, gridToWorld, GRID_W, BOARD_W, BOARD_H } from './board/gen';
 import { paintBoard } from './board/paint';
 import { Effects } from './effects';
-import { LINES } from '../game/content';
+import { LINES, capturedName } from '../game/content';
 import { armyPower, frontInfos, activeFronts, visibleNations, type FrontInfo } from '../game/war';
 import type { GameState, GameEvent } from '../game/state';
 
 const REVEAL_STEPS = 2;          // conquest steps visible past the contested territory
 const UNIT_VIS_DIST = 70;        // camera distance where unit pieces appear
-const MIN_DIST = 11, MAX_DIST = 150;
+const MIN_DIST = 11, MAX_DIST = 125;
 
 // Line index → model file. Missing files fall back to primitive pieces.
 // 'Mech' is kitbashed in code, not loaded from disk.
@@ -77,6 +77,10 @@ export class BoardView {
   private raycaster = new THREE.Raycaster();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private labelLayer = new THREE.Group();
+  private convoys: { mesh: THREE.Object3D; x: number; z: number; tx: number; tz: number }[] = [];
+  private chevrons = new Map<number, THREE.Mesh>();
+  private convoyAcc = 0;
+  private homeCenter: { x: number; z: number } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, gs: GameState, board: Board) {
     this.board = board;
@@ -439,16 +443,20 @@ export class BoardView {
       placed.push({ x: w.x, z: w.z });
     }
 
-    // Territory names, greedy collision skip.
+    // Territory names, greedy collision skip. Annexed land wears YOUR brand —
+    // the map fills with the company as the empire grows.
     for (const t of this.board.territories) {
       if (!vis.has(t.nation)) continue;
       const w = gridToWorld(t.cx, t.cy);
       if (placed.some(p => Math.hypot(p.x - w.x, p.z - w.z) < 13)) continue;
       const isC = contested.has(t.id);
-      const short = t.name.length > 18 ? t.name.split(' ').slice(0, 2).join(' ') : t.name;
+      const isOwned = owned.has(t.id);
+      const isHome = t.nation === this.board.homeNation;
+      const base = isOwned && !isHome ? capturedName(gs.company || 'Freedom', t.id) : t.name;
+      const short = base.length > 18 ? base.split(' ').slice(0, 2).join(' ') : base;
       const sp = mkText(isC ? `⚔ ${short.toUpperCase()}` : short.toUpperCase(), {
         size: isC ? 3.6 : 2.8,
-        color: isC ? 'rgba(255,214,132,0.98)' : owned.has(t.id) ? 'rgba(64,46,12,0.95)' : 'rgba(226,232,238,0.85)'
+        color: isC ? 'rgba(255,214,132,0.98)' : isOwned ? 'rgba(64,46,12,0.95)' : 'rgba(226,232,238,0.85)'
       });
       sp.position.set(w.x, 1.6, w.z);
       this.labelLayer.add(sp);
@@ -490,6 +498,59 @@ export class BoardView {
       f.position.set(t.x, 0, t.z);
       f.rotation.y = Math.sin(this.time * 1.5 + i) * 0.1;
       f.scale.setScalar(clamp(this.dist / 30, 1, 2.4));
+    }
+  }
+
+  // Ambient production made visible: convoys roll from the homeland to the
+  // hottest front, at every altitude. Pure theater — no supply mechanic.
+  private ensureHomeCenter(): { x: number; z: number } {
+    if (!this.homeCenter) {
+      const home = this.board.territories.filter(t => t.nation === this.board.homeNation);
+      const cx = home.reduce((s, t) => s + t.cx, 0) / Math.max(home.length, 1);
+      const cy = home.reduce((s, t) => s + t.cy, 0) / Math.max(home.length, 1);
+      this.homeCenter = (({ x, z }) => ({ x, z }))(gridToWorld(cx, cy));
+    }
+    return this.homeCenter;
+  }
+
+  private updateConvoys(gs: GameState, hot: FrontInfo | null, dt: number): void {
+    this.ensureHomeCenter();
+    const producing = gs.lines.some(l => l.owned > 0 && (l.hired || l.running));
+    if (this.homeCenter && hot && producing && this.models.has('ScoutCar')) {
+      this.convoyAcc += dt;
+      if (this.convoyAcc > 5 && this.convoys.length < 7) {
+        this.convoyAcc = 0;
+        const t = this.board.territories.find(q => q.id === hot.tid);
+        if (t) {
+          const dest = gridToWorld(t.cx, t.cy);
+          const mesh = this.tinted('ScoutCar', true);
+          mesh.position.set(this.homeCenter.x, 0, this.homeCenter.z);
+          this.scene.add(mesh);
+          this.convoys.push({
+            mesh,
+            x: this.homeCenter.x + (Math.random() - 0.5) * 8,
+            z: this.homeCenter.z + (Math.random() - 0.5) * 8,
+            tx: dest.x + (Math.random() - 0.5) * 6,
+            tz: dest.z + (Math.random() - 0.5) * 6
+          });
+        }
+      }
+    }
+    for (let i = this.convoys.length - 1; i >= 0; i--) {
+      const c = this.convoys[i];
+      const dx = c.tx - c.x, dz = c.tz - c.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 1.2) {
+        this.scene.remove(c.mesh);
+        this.convoys.splice(i, 1);
+        continue;
+      }
+      const step = dt * 5.5;
+      c.x += dx / d * step;
+      c.z += dz / d * step;
+      c.mesh.position.set(c.x, 0, c.z);
+      c.mesh.rotation.y = Math.atan2(dx, dz);
+      c.mesh.scale.setScalar(clamp(this.dist / 24, 1, 2.6));
     }
   }
 
@@ -621,6 +682,9 @@ export class BoardView {
       if (e.type === 'territoryWon') {
         const t = this.board.territories.find(q => q.id === e.tid);
         if (t) {
+          const cw = gridToWorld(t.cx, t.cy);
+          this.tmp.set(cw.x, 0, cw.z);
+          this.effects.conquestWave(this.tmp, 24);
           for (let i = 0; i < 8; i++) {
             const w = gridToWorld(t.cx + (Math.random() - 0.5) * 30, t.cy + (Math.random() - 0.5) * 30);
             this.tmp.set(w.x, 0.4, w.z);
@@ -640,6 +704,40 @@ export class BoardView {
     }
 
     this.syncFlags(gs);
+    this.updateConvoys(gs, hot, dt);
+
+    // Momentum chevrons: pulsing gold arrows where you're overwhelming a
+    // front — the strategic view answers "where am I winning?" at a glance.
+    const winning = new Set<number>();
+    for (const f of fronts) {
+      if (f.garrison > 0 && f.committed > f.garrison * 2) winning.add(f.tid);
+    }
+    for (const [tid, mesh] of this.chevrons) {
+      if (!winning.has(tid)) { this.scene.remove(mesh); this.chevrons.delete(tid); }
+    }
+    const hc = this.ensureHomeCenter();
+    for (const tid of winning) {
+      let cone = this.chevrons.get(tid);
+      const t = this.board.territories.find(q => q.id === tid);
+      if (!t) continue;
+      const w = gridToWorld(t.cx, t.cy);
+      if (!cone) {
+        cone = new THREE.Mesh(
+          new THREE.ConeGeometry(1.4, 3.2, 4),
+          new THREE.MeshBasicMaterial({ color: 0xf2c14e, transparent: true, opacity: 0.75, depthWrite: false })
+        );
+        cone.rotation.x = Math.PI / 2;
+        this.scene.add(cone);
+        this.chevrons.set(tid, cone);
+      }
+      const ang = Math.atan2(w.x - hc.x, w.z - hc.z);
+      cone.position.set(w.x, 2.2, w.z);
+      cone.rotation.y = ang;
+      const pulse = 0.8 + Math.sin(time * 3.2) * 0.25;
+      cone.scale.setScalar(pulse * clamp(this.dist / 40, 0.8, 2.2));
+      (cone.material as THREE.MeshBasicMaterial).opacity = 0.45 + Math.sin(time * 3.2) * 0.25;
+    }
+
     this.effects.update(dt);
 
     // Camera: idle eases home — to the battle when engaged, to the whole
@@ -674,36 +772,82 @@ export class BoardView {
         const n = Math.round(Math.min(caps[i], Math.sqrt(gs.lines[i].army) * (i === 0 ? 1.6 : 0.8)) * room);
         for (let k = 0; k < n; k++) want.push({ friendly: true, line: i });
       }
-      // Defenders scale with the remaining garrison; a breaking garrison thins out.
-      const en = Math.round(Math.min(48, 5 * Math.pow(Math.max(hot.garrison, 2), 0.24)) * room);
+      // Defenders scale with the remaining garrison; a breaking garrison thins
+      // out — but a FINAL WAVE floods the field (the climax must be visible).
+      let en = Math.round(Math.min(48, 5 * Math.pow(Math.max(hot.garrison, 2), 0.24)) * room);
+      if (gs.wave) en = Math.max(en, Math.round(20 * room) + 6);
       for (let k = 0; k < en; k++) want.push({ friendly: false, line: k % ENEMY_MODELS.length });
     }
 
-    // Rebuild piece set when composition or loaded models change.
-    if (want.length !== this.pieces.length || this.piecesVersion !== this.modelsVersion) {
+    // Incremental piece management: new pieces SPAWN AT THE REAR and march in
+    // (mass production made visible); losses remove from the tail. A model
+    // load flush still rebuilds everything once.
+    if (this.piecesVersion !== this.modelsVersion) {
       this.piecesVersion = this.modelsVersion;
       for (const p of this.pieces) this.scene.remove(p.mesh);
       this.pieces = [];
-      let fi = 0, ei = 0;
-      for (let i = 0; i < want.length; i++) {
-        const w = want[i];
-        const name = w.friendly ? FRIENDLY_MODELS[w.line] : ENEMY_MODELS[w.line];
-        const mesh = name ? this.tinted(name, w.friendly) : this.fallbackPiece(w.friendly);
-        // Blob shadow for ground pieces (flyers cast none — cheaper and cleaner).
-        const flies = w.friendly ? (w.line === 2 || w.line === 5) : w.line === 2;
-        if (!flies) {
-          const sh = new THREE.Mesh(this.shadowGeo, this.shadowMat);
-          sh.rotation.x = -Math.PI / 2;
-          sh.position.y = 0.06;
-          mesh.add(sh);
-        }
-        this.scene.add(mesh);
-        this.pieces.push({
-          mesh, slot: i, ord: w.friendly ? fi++ : ei++, friendly: w.friendly, line: w.line,
-          x: 0, z: 0, tx: 0, tz: 0, phase: Math.random() * Math.PI * 2
-        });
-        this.assignSlot(this.pieces[i], pts, gs, hot, true);
+    }
+    const wantCount = new Map<string, number>();
+    for (const w of want) {
+      const k = `${w.friendly}|${w.line}`;
+      wantCount.set(k, (wantCount.get(k) ?? 0) + 1);
+    }
+    const haveCount = new Map<string, number>();
+    for (const p of this.pieces) {
+      const k = `${p.friendly}|${p.line}`;
+      haveCount.set(k, (haveCount.get(k) ?? 0) + 1);
+    }
+    let changed = false;
+    // Remove excess (killed/withdrawn) from the tail.
+    for (const [k, have] of haveCount) {
+      const need = wantCount.get(k) ?? 0;
+      let excess = have - need;
+      for (let i = this.pieces.length - 1; i >= 0 && excess > 0; i--) {
+        const p = this.pieces[i];
+        if (`${p.friendly}|${p.line}` !== k) continue;
+        this.scene.remove(p.mesh);
+        this.pieces.splice(i, 1);
+        excess--; changed = true;
       }
+    }
+    // Add reinforcements, spawning behind their own side.
+    for (const [k, need] of wantCount) {
+      const have = haveCount.get(k) ?? 0;
+      for (let n = have; n < need; n++) {
+        const [fStr, lStr] = k.split('|');
+        const friendly = fStr === 'true';
+        const line = Number(lStr);
+        const name = friendly ? FRIENDLY_MODELS[line] : ENEMY_MODELS[line];
+        const mesh = name ? this.tinted(name, friendly) : this.fallbackPiece(friendly);
+        const flies = friendly ? (line === 2 || line === 5) : line === 2;
+        const sh = new THREE.Mesh(this.shadowGeo, this.shadowMat);
+        sh.rotation.x = -Math.PI / 2;
+        sh.position.y = 0.06;
+        mesh.add(sh);
+        if (flies) mesh.userData.shadow = sh;
+        this.scene.add(mesh);
+        const piece: Piece = {
+          mesh, slot: this.pieces.length, ord: 0, friendly, line,
+          x: 0, z: 0, tx: 0, tz: 0, phase: Math.random() * Math.PI * 2
+        };
+        this.pieces.push(piece);
+        // Snap to formation, then displace toward its own rear so it marches in.
+        this.assignSlot(piece, pts, gs, hot, true);
+        const hc = this.ensureHomeCenter();
+        let dx = hc.x - piece.tx, dz = hc.z - piece.tz;
+        const dl = Math.hypot(dx, dz) || 1;
+        dx /= dl; dz /= dl;
+        const rear = friendly ? 1 : -1;
+        const dist = 12 + Math.random() * 10;
+        piece.x = piece.tx + dx * dist * rear;
+        piece.z = piece.tz + dz * dist * rear;
+        changed = true;
+      }
+    }
+    // Re-number ords per faction so formation spread stays even.
+    if (changed) {
+      let fi = 0, ei = 0;
+      for (const p of this.pieces) p.ord = p.friendly ? fi++ : ei++;
     }
 
     // March pieces toward their formation slots along the seam.
@@ -717,14 +861,18 @@ export class BoardView {
         const step = Math.min(d, dt * 2.4 * hustle);
         p.x += dx / d * step;
         p.z += dz / d * step;
-        p.mesh.rotation.y = Math.atan2(dx, dz) + Math.sin(p.phase * 7.3) * 0.28;
+        p.mesh.rotation.y = Math.atan2(dx, dz) + Math.sin(p.phase * 7.3) * 0.45;
       }
       const fly = p.friendly ? (p.line === 2 || p.line === 5) : p.line === 2;
       const alt = !fly ? 0 : p.friendly && p.line === 2 ? 2.4 : p.friendly ? 3.0 : 1.5;
       const bob = fly ? alt + Math.sin(this.time * 2 + p.phase) * 0.25 : 0;
       p.mesh.position.set(p.x, bob, p.z);
-      // Pose life: per-piece scale variation kills the mannequin-parade look.
-      const jitterScale = 0.92 + ((p.slot * 31) % 17) / 100;
+      // Flyers keep a DETACHED ground shadow — without it altitude is
+      // invisible from near-top-down and aircraft read as parked (B3).
+      const shadow = p.mesh.userData.shadow as THREE.Mesh | undefined;
+      if (shadow) shadow.position.y = -bob + 0.06;
+      // Pose life: wider per-piece scale variation kills the mannequin look.
+      const jitterScale = 0.88 + ((p.slot * 31) % 27) / 100;
       p.mesh.scale.setScalar(clamp(this.dist / 24, 1, 2.1) * jitterScale);
     }
   }
@@ -754,7 +902,7 @@ export class BoardView {
     }
     const sign = p.friendly ? -1 : 1;
     const standoff = (4 + wrapRank * 2.6) * sign;
-    const jx = ((p.slot * 37) % 7 - 3) * 0.5;
+    const jx = ((p.slot * 37) % 13 - 6) * 0.55;
     const gx = anchor.x + nx * standoff + jx;
     const gy = anchor.y + ny * standoff;
     const w = gridToWorld(gx, gy);

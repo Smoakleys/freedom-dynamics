@@ -465,6 +465,8 @@ export class UI {
         <table>
           <tr><td>Revenue recognized</td><td>${fmtMoney(report.earned)}</td></tr>
           <tr><td>Territories annexed</td><td>${report.territoriesWon}</td></tr>
+          ${report.nationsFallen > 0 ? `<tr><td>Nations acquired</td><td>${report.nationsFallen}</td></tr>` : ''}
+          ${report.researchDone.length > 0 ? `<tr><td>Programs completed</td><td>${report.researchDone.length}</td></tr>` : ''}
           <tr><td>Units delivered</td><td>${fmt(report.unitsDelivered)}</td></tr>
           <tr><td>${euphemism}</td><td>${fmt(report.unitsLost)}</td></tr>
           <tr><td>Rules of engagement</td><td><span class="redacted">redacted</span></td></tr>

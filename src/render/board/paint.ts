@@ -161,15 +161,16 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
     if (o === 'fog') continue;
     const r = mulberry32(t.id * 191 + 7);
     const glyphs = 5 + Math.floor(r() * 5);
-    ctx.strokeStyle = o === 'you' ? 'rgba(74,52,12,0.65)' : 'rgba(30,34,42,0.65)';
+    // Quiet cartographic marks — loud glyphs read as scribbles up close.
+    ctx.strokeStyle = o === 'you' ? 'rgba(74,52,12,0.32)' : 'rgba(30,34,42,0.34)';
     ctx.fillStyle = ctx.strokeStyle;
-    ctx.lineWidth = 2.8 * K;
+    ctx.lineWidth = 1.8 * K;
     for (let g = 0; g < glyphs; g++) {
       const gx = (t.cx + (r() - 0.5) * 40) * SX;
       const gy = (t.cy + (r() - 0.5) * 40) * SY;
       if (labelAt(board, gx / SX, gy / SY) !== t.id) continue;
       const kind = r();
-      const sc = (0.85 + r() * 0.45) * K;
+      const sc = (0.45 + r() * 0.25) * K;
       const rot = (r() - 0.5) * 0.35;
       ctx.save();
       ctx.translate(gx, gy);
@@ -253,18 +254,39 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
   }
   ctx.setLineDash([]);
 
-  // War scars: dark scorch scatter inside contested territories near your border.
-  ctx.fillStyle = 'rgba(30,22,12,0.3)';
+  // War scars: many small scorch marks (big baked blobs smear at close zoom).
+  ctx.fillStyle = 'rgba(30,22,12,0.22)';
   for (const t of board.territories) {
     if (!st.contested.has(t.id)) continue;
     const r = mulberry32(t.id * 613);
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < 44; i++) {
       const sxp = (t.cx + (r() - 0.5) * 40) * SX;
       const syp = (t.cy + (r() - 0.5) * 40) * SY;
       if (labelAt(board, sxp / SX, syp / SY) !== t.id) continue;
       ctx.beginPath();
-      ctx.ellipse(sxp, syp, (2 + r() * 6) * K, (1.5 + r() * 4) * K, r() * Math.PI, 0, Math.PI * 2);
+      ctx.ellipse(sxp, syp, (1 + r() * 2.4) * K, (0.8 + r() * 1.8) * K, r() * Math.PI, 0, Math.PI * 2);
       ctx.fill();
+    }
+  }
+
+  // Contested identity: gold diagonal hatch over the enemy fill (reads at
+  // every zoom, unlike the dashed ring alone).
+  ctx.strokeStyle = 'rgba(242,193,78,0.16)';
+  ctx.lineWidth = 3 * K;
+  for (const t of board.territories) {
+    if (!st.contested.has(t.id)) continue;
+    for (let off = -60; off < 60; off += 7) {
+      const x0 = (t.cx + off) * SX, y0 = (t.cy - 60) * SY;
+      ctx.beginPath();
+      let drawing = false;
+      for (let s = 0; s < 120; s += 2) {
+        const px = x0 + s * SX * 0.7, py = y0 + s * SY;
+        const inT = labelAt(board, px / SX, py / SY) === t.id;
+        if (inT && !drawing) { ctx.moveTo(px, py); drawing = true; }
+        else if (!inT && drawing) { ctx.stroke(); ctx.beginPath(); drawing = false; }
+        else if (inT) ctx.lineTo(px, py);
+      }
+      if (drawing) ctx.stroke();
     }
   }
 
