@@ -119,6 +119,10 @@ if (!gs.founded) {
     gs.founded = true;
     save(gs);
     begin();
+    // First-day orientation, PMC style.
+    setTimeout(() => ui.toast('The gold territory is YOURS. Everything touching it is a front.'), 1500);
+    setTimeout(() => ui.toast('Tap DELIVER to ship product. Deliveries fight AND pay.'), 6500);
+    setTimeout(() => ui.toast('Pinch the map — zoom from the whole war down to one firefight.'), 12000);
   });
 } else {
   begin();

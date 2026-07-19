@@ -26,6 +26,8 @@
 
 **Build stages**: v0.4a = nation-tiled world gen + multi-front sim core + overrun capture + mass rendering. v0.4b = per-line routing + engineers/R&D + nation-fall waves + Warlord income. Then balance + juice on top.
 
+**MARATHON STATUS (2026-07-19, ~03:00):** v0.4a + v0.4b SHIPPED and live. Test suite: 18 vitest sim tests (test/sim.test.ts + balance harness) + 16-assert Playwright E2E (test/e2e.py) — the "everything works when I'm back" guarantee; run `npm test` and `py -3.12 test/e2e.py`. Balance: garrisons ×11/ring after the harness caught a 1-hour continent collapse; conquest now decelerates (first nation in minutes, 6/8 nations by h9 sim, deep rings gate for days). Four fork-reviewer rounds implemented: sprite labels (killed baked-text blur), cold-nation/gold-empire ownership script, contested = cold fill + gold hatch + dashed ring + scorch, per-front pickets + hold-phase remnants (war is two-sided at every zoom), streaming rear-spawn reinforcements, flyer ground-shadows, flat momentum arrows, conquest gold shockwaves, ambient convoys, branded annexed labels, industry clusters, continent camera clamp, strike chrome chip, onboarding toasts. Reviewer verdict at round 4: far=PASS, mid=PASS, close=PASS-after-remnant-fix (verify round 5).
+
 ---
 
 *Locked with Bridger via grill session, 2026-07-18.*
