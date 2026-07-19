@@ -276,17 +276,18 @@ export class UI {
       }
     }
 
-    // Strike bar.
+    // Strike bar: structure rebuilds only when the capability SET changes;
+    // cooldown text updates in place (rebuilding every tick eats taps).
     const bar = document.getElementById('strike-bar');
     if (bar) {
       const caps2 = RESEARCH.filter(r => r.branch === 'capabilities' && gs.completedResearch.includes(r.id));
-      const html = caps2.map(r => {
-        const cd = gs.cooldowns[r.id] ?? 0;
-        const label = r.id === 'thunderclap' ? '✈' : r.id === 'skyfall' ? '☄' : '⛈';
-        return `<button class="strike-btn" data-kind="${r.id}" ${cd > 0 ? 'disabled' : ''}>${label}<small>${cd > 0 ? Math.ceil(cd) + 's' : 'READY'}</small></button>`;
-      }).join('');
-      if (bar.innerHTML !== html) {
-        bar.innerHTML = html;
+      const key = caps2.map(r => r.id).join(',');
+      if (bar.dataset.caps !== key) {
+        bar.dataset.caps = key;
+        bar.innerHTML = caps2.map(r => {
+          const label = r.id === 'thunderclap' ? '✈' : r.id === 'skyfall' ? '☄' : '⛈';
+          return `<button class="strike-btn" data-kind="${r.id}">${label}<small></small></button>`;
+        }).join('');
         bar.querySelectorAll('.strike-btn').forEach(el => {
           el.addEventListener('click', () => {
             const kind = (el as HTMLElement).dataset.kind!;
@@ -295,6 +296,12 @@ export class UI {
           });
         });
       }
+      bar.querySelectorAll('.strike-btn').forEach(el => {
+        const kind = (el as HTMLElement).dataset.kind!;
+        const cd = gs.cooldowns[kind] ?? 0;
+        (el as HTMLButtonElement).disabled = cd > 0;
+        (el.querySelector('small') as HTMLElement).textContent = cd > 0 ? `${Math.ceil(cd)}s` : 'READY';
+      });
     }
 
     for (let i = 0; i < LINES.length; i++) {

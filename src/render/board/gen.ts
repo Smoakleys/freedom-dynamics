@@ -167,11 +167,14 @@ export function generateBoard(worldSeed: number): Board {
   for (let n = 0; n < natSeeds.length; n++) {
     const terrs = territories.filter(t => t.nation === n).map(t => t.id);
     const r2 = mulberry32(seed + n * 101);
+    // Strictly COLD hue bands so enemy nations never drift toward the
+    // empire's gold — ownership must be glanceable (reviewer round 1).
+    const COLD_HUES = [210, 185, 250, 155, 285, 225, 130, 320, 200];
     nations.push({
       id: n,
       name: n === homeNation ? 'THE HOMELAND'
         : NATION_FIRST[Math.floor(r2() * NATION_FIRST.length)] + NATION_SECOND[Math.floor(r2() * NATION_SECOND.length)],
-      color: { h: 190 + r2() * 140, s: 8 + r2() * 14, l: 38 + r2() * 12 },
+      color: { h: COLD_HUES[n % COLD_HUES.length] + (r2() - 0.5) * 14, s: 12 + r2() * 10, l: 40 + r2() * 10 },
       adversaryName: ADV_BRANDS[n % ADV_BRANDS.length],
       territories: terrs
     });
@@ -192,7 +195,10 @@ export function generateBoard(worldSeed: number): Board {
   }
   for (const t of territories) {
     const d = dist.get(t.id) ?? 8;
-    t.strength = t.nation === homeNation ? 0 : 22 * Math.pow(1.55, d - 1);
+    // Steep exponential per ring — the walls must keep pace with an idle
+    // economy that multiplies. Ring 1 ≈ 30, ring 4 ≈ 40k, ring 6 ≈ 4.8M,
+    // ring 8 ≈ 585M — the far continent is a WEEKS-long campaign.
+    t.strength = t.nation === homeNation ? 0 : 30 * Math.pow(11, d - 1);
   }
 
   return { labels, territories, nations, homeNation, seed, depthFields: new Map() };

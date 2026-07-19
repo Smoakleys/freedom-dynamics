@@ -52,15 +52,15 @@ export const RESEARCH: ResearchDef[] = [
     desc: 'All production lines run 25% faster. The union was not consulted.' },
   { id: 'thunderclap', name: 'Project THUNDERCLAP', branch: 'capabilities', cost: 260, cooldown: 90,
     desc: 'Callable airstrike. Tap the map; freedom arrives at Mach 1.4.' },
-  { id: 'armor2', name: 'Compositer Everything', branch: 'upgrades', cost: 900, requires: 'armor1',
+  { id: 'armor2', name: 'Compositer Everything', branch: 'upgrades', cost: 4000, requires: 'armor1',
     desc: '+25% more firepower. The armor\'s armor has armor.' },
-  { id: 'mech', name: 'Project BIG STOMPY', branch: 'units', cost: 1600,
+  { id: 'mech', name: 'Project BIG STOMPY', branch: 'units', cost: 12000,
     desc: 'Unlocks the Mech Assembly Plant. Legal insists it be called a "bipedal logistics platform".' },
-  { id: 'retool2', name: 'Panic Retooling', branch: 'upgrades', cost: 2400, requires: 'retool1',
+  { id: 'retool2', name: 'Panic Retooling', branch: 'upgrades', cost: 9000, requires: 'retool1',
     desc: 'Lines 25% faster again. The machines are frightened of you now.' },
-  { id: 'skyfall', name: 'Project SKYFALL', branch: 'capabilities', cost: 4200, requires: 'thunderclap', cooldown: 300,
+  { id: 'skyfall', name: 'Project SKYFALL', branch: 'capabilities', cost: 25000, requires: 'thunderclap', cooldown: 300,
     desc: 'Callable orbital lance. Tap the map; the sky files an invoice.' },
-  { id: 'weather', name: 'Project LIGHT DRIZZLE', branch: 'capabilities', cost: 15000, requires: 'skyfall', cooldown: 600,
+  { id: 'weather', name: 'Project LIGHT DRIZZLE', branch: 'capabilities', cost: 80000, requires: 'skyfall', cooldown: 600,
     desc: 'Weather control. It rains ordnance on EVERY front simultaneously. Forecast: freedom.' }
 ];
 

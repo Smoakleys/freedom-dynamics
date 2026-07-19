@@ -123,7 +123,9 @@ export class Effects {
       (b.fire.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - fireK);
       b.smoke.scale.setScalar((0.5 + k * 1.2) * b.scale);
       b.smoke.position.y += dt * 1.2;
-      (b.smoke.material as THREE.MeshLambertMaterial).opacity = Math.max(0, 0.5 - k * 0.3);
+      // Reach exactly zero by the 1.6 cutoff — lingering ghost hexes read as
+      // stuck geometry (reviewer B2).
+      (b.smoke.material as THREE.MeshLambertMaterial).opacity = Math.max(0, 0.5 * (1 - k / 1.6));
     }
     if (this.beam.visible) {
       this.beamT += dt;

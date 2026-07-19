@@ -76,6 +76,7 @@ export class BoardView {
   private flags = new Map<number, THREE.Group>();
   private raycaster = new THREE.Raycaster();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private labelLayer = new THREE.Group();
 
   constructor(private canvas: HTMLCanvasElement, gs: GameState, board: Board) {
     this.board = board;
@@ -195,8 +196,13 @@ export class BoardView {
     const loader = new GLTFLoader();
     this.models.set('Mech', this.buildMech());
     const names = new Set([...FRIENDLY_MODELS, ...ENEMY_MODELS].filter(Boolean).filter(n => n !== 'Mech'));
-    // Per-model target sizes — aircraft stay small so they read as air cover.
-    const SIZES: Record<string, number> = { Drone: 1.1, Jet: 1.35, Helicopter: 1.5, Soldier: 1.5 };
+    // Per-model target sizes — a deliberate scale hierarchy (soldier < truck <
+    // tank), aircraft small so they read as air cover, mech towers over all.
+    const SIZES: Record<string, number> = {
+      Soldier: 1.05, Drone: 1.0, Jet: 1.5, Helicopter: 1.9,
+      Jeep: 1.8, ScoutCar: 2.0, Ambulance: 1.9,
+      LightTank: 2.2, SuperTank: 2.5, Howitzer: 1.8, MissileLauncher: 2.0
+    };
     for (const name of names) {
       loader.load(`./models/${name}.glb`, (gltf) => {
         const obj = gltf.scene;
@@ -265,9 +271,12 @@ export class BoardView {
   private hotFront(gs: GameState): FrontInfo | null {
     const fronts = frontInfos(this.board, gs);
     if (fronts.length === 0) return null;
+    // Prefer fronts with a LIVE garrison — a hold-phase parade with no enemy
+    // is not a battle worth pointing the camera at (reviewer round 1).
+    const score = (f: FrontInfo) => f.committed * (f.garrison > 0 ? 1 : 0.1);
     const cur = fronts.find(f => f.tid === this.hotTid);
-    const best = fronts.reduce((a, b) => (b.committed > a.committed ? b : a));
-    const pick = cur && cur.committed > best.committed * 0.7 ? cur : best;
+    const best = fronts.reduce((a, b) => (score(b) > score(a) ? b : a));
+    const pick = cur && score(cur) > score(best) * 0.7 ? cur : best;
     this.hotTid = pick.tid;
     return pick;
   }
@@ -382,6 +391,76 @@ export class BoardView {
     }
   }
 
+  // Crisp text lives on sprites, not the map texture (avoids close-up blur).
+  private rebuildLabels(gs: GameState): void {
+    this.scene.remove(this.labelLayer);
+    this.labelLayer = new THREE.Group();
+    const owned = new Set(gs.owned);
+    const contested = new Set(activeFronts(this.board, gs));
+    const vis = visibleNations(this.board, gs);
+    const placed: { x: number; z: number }[] = [];
+
+    const mkText = (text: string, opts: { size: number; color: string; bg?: string; weight?: number }) => {
+      const cv = document.createElement('canvas');
+      const c2 = cv.getContext('2d')!;
+      const font = `${opts.weight ?? 700} 34px ui-monospace, Menlo, monospace`;
+      c2.font = font;
+      const w = Math.ceil(c2.measureText(text).width) + 22;
+      cv.width = w; cv.height = 52;
+      c2.font = font;
+      if (opts.bg) { c2.fillStyle = opts.bg; c2.fillRect(0, 0, w, 52); }
+      c2.strokeStyle = 'rgba(10,12,18,0.85)';
+      c2.lineWidth = 5;
+      c2.textBaseline = 'middle';
+      c2.strokeText(text, 11, 27);
+      c2.fillStyle = opts.color;
+      c2.fillText(text, 11, 27);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+      const s = opts.size / 52;
+      sp.scale.set(w * s, 52 * s, 1);
+      return sp;
+    };
+
+    // Nation names first (they own their space).
+    for (const n of this.board.nations) {
+      if (n.id === this.board.homeNation || n.territories.length === 0) continue;
+      const terrs = n.territories.map(id => this.board.territories.find(t => t.id === id)!).filter(Boolean);
+      const cx = terrs.reduce((s, t) => s + t.cx, 0) / terrs.length;
+      const cy = terrs.reduce((s, t) => s + t.cy, 0) / terrs.length;
+      const w = gridToWorld(cx, cy);
+      const conquered = terrs.every(t => owned.has(t.id));
+      const label = this.boardIsVisible(vis, n.id)
+        ? mkText(n.name.toUpperCase(), { size: 7, color: conquered ? 'rgba(242,193,78,0.9)' : 'rgba(238,242,248,0.92)', weight: 900 })
+        : mkText('[ UNSURVEYED ]', { size: 4, color: 'rgba(170,178,190,0.75)' });
+      label.position.set(w.x, 3, w.z);
+      this.labelLayer.add(label);
+      placed.push({ x: w.x, z: w.z });
+    }
+
+    // Territory names, greedy collision skip.
+    for (const t of this.board.territories) {
+      if (!vis.has(t.nation)) continue;
+      const w = gridToWorld(t.cx, t.cy);
+      if (placed.some(p => Math.hypot(p.x - w.x, p.z - w.z) < 13)) continue;
+      const isC = contested.has(t.id);
+      const short = t.name.length > 18 ? t.name.split(' ').slice(0, 2).join(' ') : t.name;
+      const sp = mkText(isC ? `⚔ ${short.toUpperCase()}` : short.toUpperCase(), {
+        size: isC ? 3.6 : 2.8,
+        color: isC ? 'rgba(255,214,132,0.98)' : owned.has(t.id) ? 'rgba(64,46,12,0.95)' : 'rgba(226,232,238,0.85)'
+      });
+      sp.position.set(w.x, 1.6, w.z);
+      this.labelLayer.add(sp);
+      placed.push({ x: w.x, z: w.z });
+    }
+    this.scene.add(this.labelLayer);
+  }
+
+  private boardIsVisible(vis: Set<number>, nation: number): boolean {
+    return vis.has(nation);
+  }
+
   // SEND HERE flag markers, one per routed line.
   private syncFlags(gs: GameState): void {
     for (let i = 0; i < LINES.length; i++) {
@@ -444,7 +523,10 @@ export class BoardView {
         company: gs.company || 'FREEDOM'
       });
       this.mapTex.needsUpdate = true;
+      this.rebuildLabels(gs);
     }
+    // Labels are a map-altitude feature; up close the world speaks for itself.
+    this.labelLayer.visible = this.dist > 34;
 
     // Hot front: full seam + pieces. Other fronts: ambient skirmish glow.
     const hot = this.hotFront(gs);
@@ -560,12 +642,12 @@ export class BoardView {
     this.syncFlags(gs);
     this.effects.update(dt);
 
-    // Camera: idle eases home to the contested front.
+    // Camera: idle eases home — to the battle when engaged, to the whole
+    // continent when surveying from altitude (keeps the board centered).
     if (time - this.lastTouch > 8) {
-      const home = this.contestedCenter(gs);
+      const home = this.dist > 95 ? { x: 0, z: 0 } : this.contestedCenter(gs);
       this.focus.x += (home.x - this.focus.x) * Math.min(1, dt * 0.8);
       this.focus.y += (home.z - this.focus.y) * Math.min(1, dt * 0.8);
-      if (this.dist > 100) this.dist += (78 - this.dist) * Math.min(1, dt * 0.5);
     }
     this.clampFocus();
 
@@ -635,14 +717,15 @@ export class BoardView {
         const step = Math.min(d, dt * 2.4 * hustle);
         p.x += dx / d * step;
         p.z += dz / d * step;
-        p.mesh.rotation.y = Math.atan2(dx, dz);
+        p.mesh.rotation.y = Math.atan2(dx, dz) + Math.sin(p.phase * 7.3) * 0.28;
       }
       const fly = p.friendly ? (p.line === 2 || p.line === 5) : p.line === 2;
       const alt = !fly ? 0 : p.friendly && p.line === 2 ? 2.4 : p.friendly ? 3.0 : 1.5;
       const bob = fly ? alt + Math.sin(this.time * 2 + p.phase) * 0.25 : 0;
       p.mesh.position.set(p.x, bob, p.z);
-      // Board-game readability: pieces grow a little as the camera rises.
-      p.mesh.scale.setScalar(clamp(this.dist / 24, 1, 2.1));
+      // Pose life: per-piece scale variation kills the mannequin-parade look.
+      const jitterScale = 0.92 + ((p.slot * 31) % 17) / 100;
+      p.mesh.scale.setScalar(clamp(this.dist / 24, 1, 2.1) * jitterScale);
     }
   }
 

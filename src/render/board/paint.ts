@@ -224,48 +224,47 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
     }
   }
 
-  // — Names + stamps —
-  ctx.textAlign = 'center';
+  // — Ownership stamps only. ALL text moved to the sprite overlay layer
+  //   (baked labels magnified into blur at close zoom — reviewer B1). —
   for (const t of board.territories) {
     const o = owner(t);
-    const px = t.cx * SX, py = t.cy * SY;
-    if (o === 'fog') continue;
-    const display = t.name.toUpperCase();
-    if (o === 'you') {
-      drawStar(ctx, px, py - 28 * K, 13 * K, '#6d4e13');
-      ctx.fillStyle = 'rgba(48,34,8,0.95)';
-    } else if (o === 'contested') {
-      ctx.fillStyle = 'rgba(255,242,218,0.98)';
-    } else {
-      ctx.fillStyle = 'rgba(226,232,238,0.8)';
-    }
-    ctx.font = `700 ${Math.round(25 * K)}px ui-monospace, Menlo, monospace`;
-    drawSpaced(ctx, display, px, py + 8 * K, 3 * K);
-    if (o === 'contested') {
-      ctx.font = `600 ${Math.round(19 * K)}px ui-monospace, Menlo, monospace`;
-      ctx.fillStyle = 'rgba(255,196,124,0.95)';
-      drawSpaced(ctx, '· CONTESTED ·', px, py + 38 * K, 2 * K);
+    if (o !== 'you') continue;
+    drawStar(ctx, t.cx * SX, t.cy * SY, 13 * K, 'rgba(109,78,19,0.8)');
+  }
+
+  // Contested territories get an animated-feel gold dashed ring along their
+  // border with your land instead of a fill change.
+  ctx.strokeStyle = 'rgba(242,193,78,0.9)';
+  ctx.lineWidth = 5 * K;
+  ctx.setLineDash([14 * K, 10 * K]);
+  for (let gy = 1; gy < GRID_H; gy++) {
+    for (let gx = 1; gx < GRID_W; gx++) {
+      const l = board.labels[gy * GRID_W + gx];
+      if (l < 0 || !st.contested.has(l)) continue;
+      const ll = board.labels[gy * GRID_W + gx - 1];
+      const lu = board.labels[(gy - 1) * GRID_W + gx];
+      if ((ll >= 0 && st.owned.has(ll)) || (lu >= 0 && st.owned.has(lu))) {
+        ctx.beginPath();
+        ctx.moveTo(gx * SX - 3 * K, gy * SY);
+        ctx.lineTo(gx * SX + 3 * K, gy * SY);
+        ctx.stroke();
+      }
     }
   }
-  // Nation names: big label at each visible enemy nation's centroid, with its
-  // regime name beneath. Fogged nations get one shrouded marker.
-  for (const n of board.nations) {
-    if (n.id === board.homeNation || n.territories.length === 0) continue;
-    const terrs = n.territories.map(id => byId.get(id)!).filter(Boolean);
-    const ncx = terrs.reduce((s, t) => s + t.cx, 0) / terrs.length * SX;
-    const ncy = terrs.reduce((s, t) => s + t.cy, 0) / terrs.length * SY;
-    if (st.visibleNations.has(n.id)) {
-      const conquered = terrs.every(t => st.owned.has(t.id));
-      ctx.font = `900 ${Math.round(44 * K)}px ui-monospace, Menlo, monospace`;
-      ctx.fillStyle = conquered ? 'rgba(120,90,26,0.4)' : 'rgba(240,244,248,0.34)';
-      drawSpaced(ctx, n.name.toUpperCase(), ncx, ncy - 30 * K, 8 * K);
-      ctx.font = `600 ${Math.round(18 * K)}px ui-monospace, Menlo, monospace`;
-      ctx.fillStyle = conquered ? 'rgba(120,90,26,0.35)' : 'rgba(240,244,248,0.28)';
-      drawSpaced(ctx, conquered ? '· ACQUIRED ·' : `· ${n.adversaryName.toUpperCase()} ·`, ncx, ncy - 4 * K, 2.5 * K);
-    } else {
-      ctx.font = `600 ${Math.round(22 * K)}px ui-monospace, Menlo, monospace`;
-      ctx.fillStyle = 'rgba(170,178,190,0.4)';
-      drawSpaced(ctx, '[ UNSURVEYED ]', ncx, ncy, 3 * K);
+  ctx.setLineDash([]);
+
+  // War scars: dark scorch scatter inside contested territories near your border.
+  ctx.fillStyle = 'rgba(30,22,12,0.3)';
+  for (const t of board.territories) {
+    if (!st.contested.has(t.id)) continue;
+    const r = mulberry32(t.id * 613);
+    for (let i = 0; i < 22; i++) {
+      const sxp = (t.cx + (r() - 0.5) * 40) * SX;
+      const syp = (t.cy + (r() - 0.5) * 40) * SY;
+      if (labelAt(board, sxp / SX, syp / SY) !== t.id) continue;
+      ctx.beginPath();
+      ctx.ellipse(sxp, syp, (2 + r() * 6) * K, (1.5 + r() * 4) * K, r() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
