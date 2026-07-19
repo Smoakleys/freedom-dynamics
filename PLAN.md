@@ -10,6 +10,22 @@
 
 **Known risks:** agent sim × offline fast-forward × phone perf (solve with tick-cheap formation-level sim + cosmetic per-unit rendering); overnight local losses must never read as punishment; no CC0 packs for mechs/moon-lasers (kitbash); routing/stockpile UI must stay ≤2 taps.
 
+## ⭐ v0.4 LIVING WAR SPEC (2026-07-19, locked line-by-line via yes/no grill — supersedes conflicting sections below)
+
+1. **World**: one CONTINENT tiled with ~6-12 NATIONS (Risk-board style), each nation a named cluster of territories with its own color/flag/Adversary rebrand. Free-form expansion — push wherever you send units, multiple simultaneous national fronts, no prescribed order. Fog hides nations you don't border yet.
+2. **Front**: the ENTIRE gold/gray border is live at once — several battle sites simultaneously; progress happens wherever you're strongest.
+3. **Mass**: player must SEE mass units and mass production. Sim aggregates under the hood, but visuals show hordes. As production scales: per-unit health/damage tiers rise AND the war spreads (more front to cover = stretch); units condense into bigger formations only at extremes.
+4. **Capture**: a territory flips when physically overrun — your forces reach its town and hold ~60s with no enemy formations inside. No progress bars.
+5. **Nation climax**: conquering a nation triggers its FINAL COUNTEROFFENSIVE — one big pre-built wave, NO replenishment; it can push you back locally but only delays. Grind it down → nation falls. Counterattacks exist as these events, not constant churn.
+6. **NO SUPPLY MECHANIC. Ever.** (Bridger: "The hell is supply? Cut this entirely.")
+7. **Routing**: every production line row has a SEND HERE control — tap it, tap the map; that line's future output marches there. No target = auto-spread. Composition on the map is shaped line by line.
+8. **Engineers/R&D**: Engineering Corps line produces engineers → R&D capacity per MINUTE, use-it-or-lose-it (never stored). One active research at a time consumes all capacity. Tree ("yes for now"): NEW UNITS (mechs → weather weapons → moon laser), UPGRADES (per-line damage/health tiers), CAPABILITIES (callable strikes on cooldown).
+9. **Economy**: Warlord Corp locked — arms exports (per batch) + war bonds (per capture) + territorial rent (per second from held land).
+10. **Prestige**: PLACEHOLDER. Fiscal-year reset "doesn't seem to fit the game's identity" — do not build it deeper; revisit when the living war is real.
+11. Standing rejections: no unit persistence/veterancy, no micro, no supply, comedy stays seasoning, art follows sim.
+
+**Build stages**: v0.4a = nation-tiled world gen + multi-front sim core + overrun capture + mass rendering. v0.4b = per-line routing + engineers/R&D + nation-fall waves + Warlord income. Then balance + juice on top.
+
 ---
 
 *Locked with Bridger via grill session, 2026-07-18.*
