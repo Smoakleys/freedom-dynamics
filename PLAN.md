@@ -1,5 +1,17 @@
 # FREEDOM DYNAMICS — Design & Build Plan
 
+## ⭐ NORTH STAR (2026-07-18, distilled by dedicated interrogator agent from a 7-question grill — supersedes conflicting locks below)
+
+**What Bridger wants:** a genuinely simulated war he owns, presented like a premium board game, funded by an AdCap economy, escalating into absurdity. The product is the SIM ITSELF — units that actually path, mass, engage, flank; a front that EMERGES from real engagements (salients, encirclements, counteroffensives; the Adversary can locally retake ground; progress ratchets only long-run). He is QUARTERMASTER, not commander: his hands are production rates, routing output between front segments, and stockpiled munitions/power-ups spent at his whim — never unit micro. Units are disposable flow (rates matter, persistence doesn't); accumulation lives in territory, income, and the map filling with his brand. Fantasy = empire + ant farm + optimizer simultaneously; comedy is seasoning (names/chyron/paperwork) — but the late arsenal goes VISIBLY RIDICULOUS (mechs, weather weapons, moon lasers) while the sim keeps deadpan seriousness. Visual bar: bold, saturated, designed-not-procedural board legibility (Risk / Total-War-campaign ENERGY, not its painterly style, not moody art, not FX spam), rich on all four axes at once: art punch, ambient life, visible momentum, per-place identity.
+
+**Predictive tests** — he'll accept: convoys hauling supply to the front; zooming into a battle where squads flank; spending 3 banked airstrikes on a stubborn salient; a mech line milestone. He'll reject: more particles on static formations; beautiful-but-abstract art; feature menus before their fiction is nailed; persistent hero units; anything requiring micromanagement.
+
+**Build order:** (1) real operational sim (formation-level agents, supply flow, emergent front contour, counterattack logic with long-run ratchet floor) — this addresses "dull" more than any art pass; (2) stockpile layer (banked airstrikes/reinforcement drops/orbital shots, tap-to-spend on the map); (3) production routing to front segments; (4) territorial income (Warlord Corp — locked); (5) absurd late-tier arsenal with real models. Never: mood-board art pivots (show working code), unit veterancy, camera drift, comedy-first features, juice shipped before the sim moves.
+
+**Known risks:** agent sim × offline fast-forward × phone perf (solve with tick-cheap formation-level sim + cosmetic per-unit rendering); overnight local losses must never read as punishment; no CC0 packs for mechs/moon-lasers (kitbash); routing/stockpile UI must stay ≤2 taps.
+
+---
+
 *Locked with Bridger via grill session, 2026-07-18.*
 
 **Pitch:** AdVenture Capitalist meets a live 3D war diorama. You run a defense contractor.
