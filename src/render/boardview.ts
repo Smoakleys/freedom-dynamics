@@ -79,6 +79,7 @@ export class BoardView {
   private labelLayer = new THREE.Group();
   private convoys: { mesh: THREE.Object3D; x: number; z: number; tx: number; tz: number }[] = [];
   private chevrons = new Map<number, THREE.Mesh>();
+  private pickets = new Map<number, THREE.Group>();
   private convoyAcc = 0;
   private homeCenter: { x: number; z: number } | null = null;
 
@@ -554,9 +555,54 @@ export class BoardView {
     }
   }
 
+  // Every front gets a visible skirmish — enemy garrison clusters facing your
+  // pickets — so the war is two-sided EVERYWHERE, not just at the hot front.
+  private updatePickets(gs: GameState, fronts: FrontInfo[], hot: FrontInfo | null): void {
+    const live = new Set<number>();
+    const hc = this.ensureHomeCenter();
+    for (const f of fronts) {
+      if (hot && f.tid === hot.tid) continue;      // hot front has the full battle
+      if (f.garrison <= 0 && !gs.wave) continue;
+      live.add(f.tid);
+      if (this.pickets.has(f.tid)) continue;
+      const t = this.board.territories.find(q => q.id === f.tid);
+      if (!t) continue;
+      const w = gridToWorld(t.cx, t.cy);
+      const grp = new THREE.Group();
+      let dx = hc.x - w.x, dz = hc.z - w.z;
+      const dl = Math.hypot(dx, dz) || 1;
+      dx /= dl; dz /= dl;
+      const en = clamp(Math.round(2 + Math.pow(Math.max(f.garrison, 2), 0.18)), 3, 9);
+      for (let i = 0; i < en; i++) {
+        const m = this.tinted(ENEMY_MODELS[i % ENEMY_MODELS.length], false);
+        m.position.set((i % 3 - 1) * 3.2 + (i * 1.7) % 2, 0, Math.floor(i / 3) * 3 + ((i * 2.3) % 2));
+        m.rotation.y = Math.atan2(dx, dz);
+        grp.add(m);
+      }
+      const fr = clamp(Math.round(en * 0.7), 2, 6);
+      for (let i = 0; i < fr; i++) {
+        const m = this.tinted(i === 0 ? 'LightTank' : 'Soldier', true);
+        m.position.set((i % 3 - 1) * 3 + dx * 9, 0, Math.floor(i / 3) * 2.6 + dz * 9);
+        m.rotation.y = Math.atan2(-dx, -dz);
+        grp.add(m);
+      }
+      grp.position.set(w.x - dx * 4, 0, w.z - dz * 4);
+      this.scene.add(grp);
+      this.pickets.set(f.tid, grp);
+    }
+    for (const [tid, grp] of this.pickets) {
+      if (!live.has(tid)) { this.scene.remove(grp); this.pickets.delete(tid); continue; }
+      grp.visible = this.dist < 110;
+      grp.scale.setScalar(clamp(this.dist / 24, 1, 2.4));
+    }
+  }
+
   private clampFocus(): void {
-    this.focus.x = clamp(this.focus.x, -BOARD_W / 2, BOARD_W / 2);
-    this.focus.y = clamp(this.focus.y, -BOARD_H / 2, BOARD_H / 2);
+    // At altitude, keep the continent centered — panning into open sea leaves
+    // a dead band with UI floating in void (reviewer N4).
+    const slack = this.dist > 80 ? 0.16 : 0.5;
+    this.focus.x = clamp(this.focus.x, -BOARD_W * slack, BOARD_W * slack);
+    this.focus.y = clamp(this.focus.y, -BOARD_H * (this.dist > 80 ? 0.22 : 0.5), BOARD_H * (this.dist > 80 ? 0.22 : 0.5));
   }
 
   private resize(): void {
@@ -595,7 +641,7 @@ export class BoardView {
     if (pts.length > 1) {
       const arr = new Float32Array(pts.length * 3);
       const ribbon = new Float32Array(pts.length * 2 * 3);
-      const glowW = 0.9 + clamp(this.dist / 60, 0, 1.6);
+      const glowW = 1.1 + clamp(this.dist / 38, 0, 3.4);
       for (let i = 0; i < pts.length; i++) {
         const w = gridToWorld(pts[i].x, pts[i].y);
         arr[i * 3] = w.x; arr[i * 3 + 1] = 0.25 + Math.sin(time * 3 + i) * 0.05; arr[i * 3 + 2] = w.z;
@@ -640,7 +686,7 @@ export class BoardView {
         const p = pts[Math.floor(Math.random() * pts.length)];
         const w = gridToWorld(p.x + (Math.random() - 0.5) * 6, p.y + (Math.random() - 0.5) * 6);
         this.tmp.set(w.x, 0.3, w.z);
-        this.effects.explode(this.tmp, this.dist > UNIT_VIS_DIST ? 1.6 : 0.8);
+        this.effects.explode(this.tmp, this.dist > UNIT_VIS_DIST ? 1.4 + this.dist / 60 : 0.8);
       }
       // Ambient war on the other fronts — the whole border is alive.
       for (const f of fronts) {
@@ -705,6 +751,7 @@ export class BoardView {
 
     this.syncFlags(gs);
     this.updateConvoys(gs, hot, dt);
+    this.updatePickets(gs, fronts, hot);
 
     // Momentum chevrons: pulsing gold arrows where you're overwhelming a
     // front — the strategic view answers "where am I winning?" at a glance.
@@ -723,8 +770,8 @@ export class BoardView {
       const w = gridToWorld(t.cx, t.cy);
       if (!cone) {
         cone = new THREE.Mesh(
-          new THREE.ConeGeometry(1.4, 3.2, 4),
-          new THREE.MeshBasicMaterial({ color: 0xf2c14e, transparent: true, opacity: 0.75, depthWrite: false })
+          new THREE.ConeGeometry(1.6, 3.6, 4),
+          new THREE.MeshBasicMaterial({ color: 0xffd25e, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false })
         );
         cone.rotation.x = Math.PI / 2;
         this.scene.add(cone);
@@ -733,9 +780,10 @@ export class BoardView {
       const ang = Math.atan2(w.x - hc.x, w.z - hc.z);
       cone.position.set(w.x, 2.2, w.z);
       cone.rotation.y = ang;
-      const pulse = 0.8 + Math.sin(time * 3.2) * 0.25;
-      cone.scale.setScalar(pulse * clamp(this.dist / 40, 0.8, 2.2));
-      (cone.material as THREE.MeshBasicMaterial).opacity = 0.45 + Math.sin(time * 3.2) * 0.25;
+      const pulse = 0.85 + Math.sin(time * 3.2) * 0.25;
+      // Big enough to read from orbit — momentum is a strategic-view feature.
+      cone.scale.setScalar(pulse * clamp(this.dist / 18, 1, 6.5));
+      (cone.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(time * 3.2) * 0.3;
     }
 
     this.effects.update(dt);

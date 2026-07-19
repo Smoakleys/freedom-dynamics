@@ -4,7 +4,7 @@ import * as THREE from 'three';
 
 interface Tracer { active: boolean; from: THREE.Vector3; to: THREE.Vector3; t: number; speed: number; mesh: THREE.Mesh }
 interface Shell { active: boolean; from: THREE.Vector3; to: THREE.Vector3; t: number; apex: number; mesh: THREE.Mesh }
-interface Boom { active: boolean; t: number; dur: number; scale: number; fire: THREE.Mesh; smoke: THREE.Mesh }
+interface Boom { active: boolean; t: number; dur: number; scale: number; fire: THREE.Mesh; smoke: THREE.Sprite }
 
 export class Effects {
   private tracers: Tracer[] = [];
@@ -35,10 +35,21 @@ export class Effects {
       this.shells.push({ active: false, from: new THREE.Vector3(), to: new THREE.Vector3(), t: 0, apex: 6, mesh });
     }
 
+    // Smoke as soft sprite puffs — mesh smoke ghosted as gray hexagons.
+    const puffCv = document.createElement('canvas');
+    puffCv.width = puffCv.height = 64;
+    const pctx = puffCv.getContext('2d')!;
+    const pg = pctx.createRadialGradient(32, 32, 4, 32, 32, 30);
+    pg.addColorStop(0, 'rgba(70,66,60,0.85)');
+    pg.addColorStop(1, 'rgba(70,66,60,0)');
+    pctx.fillStyle = pg;
+    pctx.fillRect(0, 0, 64, 64);
+    const puffTex = new THREE.CanvasTexture(puffCv);
+
     const fireGeo = new THREE.IcosahedronGeometry(0.6, 0);
     for (let i = 0; i < 26; i++) {
       const fire = new THREE.Mesh(fireGeo, new THREE.MeshBasicMaterial({ color: 0xff7a2e, transparent: true, opacity: 1, depthWrite: false }));
-      const smoke = new THREE.Mesh(fireGeo, new THREE.MeshLambertMaterial({ color: 0x4a4642, transparent: true, opacity: 0.55 }));
+      const smoke = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, transparent: true, opacity: 0.7, depthWrite: false }));
       fire.visible = smoke.visible = false;
       scene.add(fire); scene.add(smoke);
       this.booms.push({ active: false, t: 0, dur: 0.55, scale: 1, fire, smoke });
@@ -142,15 +153,14 @@ export class Effects {
       if (!b.active) continue;
       b.t += dt;
       const k = b.t / b.dur;
-      if (k >= 1.6) { b.active = false; b.fire.visible = b.smoke.visible = false; continue; }
+      // Hard 1.2s ceiling on the whole effect — nothing lingers (reviewer N1).
+      if (k >= 1.2 || b.t >= 1.2) { b.active = false; b.fire.visible = b.smoke.visible = false; continue; }
       const fireK = Math.min(k, 1);
       b.fire.scale.setScalar((0.3 + fireK * 1.5) * b.scale);
       (b.fire.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - fireK);
-      b.smoke.scale.setScalar((0.5 + k * 1.2) * b.scale);
+      b.smoke.scale.setScalar((0.8 + k * 1.6) * b.scale);
       b.smoke.position.y += dt * 1.2;
-      // Reach exactly zero by the 1.6 cutoff — lingering ghost hexes read as
-      // stuck geometry (reviewer B2).
-      (b.smoke.material as THREE.MeshLambertMaterial).opacity = Math.max(0, 0.5 * (1 - k / 1.6));
+      (b.smoke.material as THREE.SpriteMaterial).opacity = Math.max(0, 0.7 * (1 - k / 1.2));
     }
     for (const w of this.waves) {
       if (!w.active) continue;

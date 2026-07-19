@@ -70,8 +70,8 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
   const cctx = coarse.getContext('2d')!;
   const im = cctx.createImageData(GRID_W, GRID_H);
   const px = im.data;
-  const seaRGB: [number, number, number] = [34, 50, 62];
-  const shallowRGB: [number, number, number] = [52, 74, 86];
+  const seaRGB: [number, number, number] = [42, 60, 74];
+  const shallowRGB: [number, number, number] = [60, 84, 98];
   const fogRGB: [number, number, number] = [35, 40, 51];
   const coastRGB: [number, number, number] = [26, 34, 44];
   const borderRGB: [number, number, number] = [40, 42, 48];
@@ -225,12 +225,25 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
     }
   }
 
-  // — Ownership stamps only. ALL text moved to the sprite overlay layer
+  // — Ownership stamps + industry. ALL text lives on the sprite overlay layer
   //   (baked labels magnified into blur at close zoom — reviewer B1). —
   for (const t of board.territories) {
     const o = owner(t);
     if (o !== 'you') continue;
     drawStar(ctx, t.cx * SX, t.cy * SY, 13 * K, 'rgba(109,78,19,0.8)');
+    // Company towns: small building clusters — the empire looks BUILT ON, not
+    // just tinted (annexed land shows its new management).
+    const r = mulberry32(t.id * 419);
+    for (let c = 0; c < 3; c++) {
+      const bx = (t.cx + (r() - 0.5) * 30) * SX;
+      const by = (t.cy + (r() - 0.5) * 30) * SY;
+      if (labelAt(board, bx / SX, by / SY) !== t.id) continue;
+      for (let b = 0; b < 3 + Math.floor(r() * 3); b++) {
+        const w2 = (2 + r() * 3) * K, h2 = (2 + r() * 4) * K;
+        ctx.fillStyle = r() > 0.4 ? 'rgba(96,70,22,0.55)' : 'rgba(60,44,14,0.55)';
+        ctx.fillRect(bx + (r() - 0.5) * 14 * K, by + (r() - 0.5) * 10 * K, w2, h2);
+      }
+    }
   }
 
   // Contested territories get an animated-feel gold dashed ring along their

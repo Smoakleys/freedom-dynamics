@@ -203,7 +203,9 @@ export function sectorName(index: number, fiscalYear: number): string {
 
 export function capturedName(company: string, index: number): string {
   const brand = (company.split(' ')[0] || 'Freedom');
-  return `${brand}${RENAME_SUFFIX[index % RENAME_SUFFIX.length]}`;
+  // Hash-spread the suffix so adjacent territory ids don't twin their names.
+  const h = Math.abs(Math.imul(index ^ 0x2545f491, 0x9e3779b9)) % RENAME_SUFFIX.length;
+  return `${brand}${RENAME_SUFFIX[h]}`;
 }
 
 export const BALANCE = {
