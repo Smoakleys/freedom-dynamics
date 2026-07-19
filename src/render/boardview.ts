@@ -583,9 +583,15 @@ export class BoardView {
         m.rotation.y = Math.atan2(dx, dz) + ((i * 13) % 7 - 3) * 0.09;
         grp.add(m);
       }
+      // Friendly pickets reflect what the player actually builds.
+      const arsenal: string[] = [];
+      for (let li = 0; li < LINES.length; li++) {
+        if (gs.lines[li].army > 1 && FRIENDLY_MODELS[li]) arsenal.push(FRIENDLY_MODELS[li]);
+      }
+      if (arsenal.length === 0) arsenal.push('Soldier');
       const fr = clamp(Math.round(en * 0.7), 2, 6);
       for (let i = 0; i < fr; i++) {
-        const m = this.tinted(i === 0 ? 'LightTank' : 'Soldier', true);
+        const m = this.tinted(arsenal[i % arsenal.length], true);
         m.position.set((i % 3 - 1) * 3 + dx * 9, 0, Math.floor(i / 3) * 2.6 + dz * 9);
         m.rotation.y = Math.atan2(-dx, -dz);
         grp.add(m);
@@ -749,6 +755,13 @@ export class BoardView {
             this.effects.explode(this.tmp, 1.4 + Math.random());
           }
         }
+      } else if (e.type === 'waveStarted') {
+        // Cut the camera to the counteroffensive (unless the player is driving).
+        if (time - this.lastTouch > 4) {
+          const home = this.contestedCenter(gs);
+          this.focus.set(home.x, home.z);
+          this.dist = Math.min(this.dist, 34);
+        }
       } else if (e.type === 'nationFell') {
         const n = this.board.nations[e.nation];
         for (const tid of n.territories) {
@@ -801,10 +814,18 @@ export class BoardView {
         this.chevrons.set(tid, cone);
       }
       const ang = Math.atan2(w.x - hc.x, w.z - hc.z);
-      cone.position.set(w.x, 1.2, w.z);
+      // Strategic-view feature ONLY — inside battle frames it reads as a
+      // paper airplane parked among the units (round-5).
+      cone.visible = this.dist > 45;
+      // Drift along the heading: motion sells direction better than shape.
+      const drift = ((time * 1.4) % 1) * 3 - 1.5;
+      const dl2 = Math.hypot(w.x - hc.x, w.z - hc.z) || 1;
+      cone.position.set(
+        w.x + ((w.x - hc.x) / dl2) * drift, 1.2,
+        w.z + ((w.z - hc.z) / dl2) * drift
+      );
       cone.rotation.y = ang;
       const pulse = 0.85 + Math.sin(time * 3.2) * 0.25;
-      // Big enough to read from orbit — momentum is a strategic-view feature.
       cone.scale.setScalar(pulse * clamp(this.dist / 18, 1, 6.5));
       (cone.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(time * 3.2) * 0.3;
     }
@@ -846,7 +867,7 @@ export class BoardView {
       // Defenders scale with the remaining garrison. The close frame must
       // NEVER be a one-sided parade: hold-phase keeps enemy remnants in shot,
       // and a FINAL WAVE floods the field.
-      let en = Math.round(Math.min(48, 5 * Math.pow(Math.max(hot.garrison, 2), 0.24)) * room);
+      let en = Math.round(Math.min(56, 6.5 * Math.pow(Math.max(hot.garrison, 2), 0.24)) * room);
       if (hot.garrison <= 0) en = Math.max(en, Math.round(6 * room) + 3);
       if (gs.wave) en = Math.max(en, Math.round(20 * room) + 6);
       for (let k = 0; k < en; k++) want.push({ friendly: false, line: k % ENEMY_MODELS.length });
@@ -973,8 +994,10 @@ export class BoardView {
       const d1 = k1 >= 0 && k1 < field.length ? field[k1] : -1;
       if (d1 < d0) { nx = -nx; ny = -ny; } // make (nx,ny) point into enemy ground
     }
+    // Minimum contact separation keeps opposing pieces from interpenetrating
+    // at the seam (round-5: soldier standing inside a tank hull).
     const sign = p.friendly ? -1 : 1;
-    const standoff = (4 + wrapRank * 2.6) * sign;
+    const standoff = (5.2 + wrapRank * 2.6) * sign;
     const jx = ((p.slot * 37) % 13 - 6) * 0.55;
     const gx = anchor.x + nx * standoff + jx;
     const gy = anchor.y + ny * standoff;

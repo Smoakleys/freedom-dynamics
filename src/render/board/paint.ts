@@ -241,10 +241,10 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
       const bx = (t.cx + (r() - 0.5) * 30) * SX;
       const by = (t.cy + (r() - 0.5) * 30) * SY;
       if (labelAt(board, bx / SX, by / SY) !== t.id) continue;
-      for (let b = 0; b < 4 + Math.floor(r() * 3); b++) {
-        const w2 = (4 + r() * 6) * K, h2 = (4 + r() * 8) * K;
-        ctx.fillStyle = r() > 0.4 ? 'rgba(96,70,22,0.8)' : 'rgba(56,40,12,0.8)';
-        ctx.fillRect(bx + (r() - 0.5) * 20 * K, by + (r() - 0.5) * 14 * K, w2, h2);
+      for (let b = 0; b < 5 + Math.floor(r() * 3); b++) {
+        const w2 = (6 + r() * 9) * K, h2 = (6 + r() * 12) * K;
+        ctx.fillStyle = r() > 0.4 ? 'rgba(96,70,22,0.85)' : 'rgba(56,40,12,0.85)';
+        ctx.fillRect(bx + (r() - 0.5) * 26 * K, by + (r() - 0.5) * 18 * K, w2, h2);
       }
     }
   }

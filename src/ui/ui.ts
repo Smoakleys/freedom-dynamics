@@ -361,6 +361,9 @@ export class UI {
       this.advEl.textContent = info.sub;
       this.frontFill.style.width = `${(info.pct * 100).toFixed(1)}%`;
       this.frontLabel.textContent = info.label;
+      // Red alert while a final counteroffensive is inbound.
+      document.getElementById('war-hud')?.classList.toggle('red-alert', !!gs.wave);
+      document.getElementById('front-fill')?.classList.toggle('red-alert', !!gs.wave);
     }
     for (let i = 0; i < LINES.length; i++) {
       const ls = gs.lines[i];
