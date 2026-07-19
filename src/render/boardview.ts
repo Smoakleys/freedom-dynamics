@@ -61,9 +61,12 @@ export class BoardView {
   // Camera state.
   private focus = new THREE.Vector2(0, 0);
   private dist = 90;
+  private distTarget: number | null = null;
   private lastTouch = -999;
   private pointers = new Map<number, { x: number; y: number }>();
   private pinchDist = 0;
+  private pinchMid = { x: 0, y: 0 };
+  private lastTap = { t: -999, x: 0, y: 0 };
 
   private skirmishAcc = 0;
   private tracerAcc = 0;
@@ -308,6 +311,14 @@ export class BoardView {
   private setupControls(): void {
     const el = this.canvas;
     el.style.touchAction = 'none';
+    // iOS Safari ignores user-scalable=no in browser tabs and hijacks pinch
+    // for PAGE zoom — kill its gesture pipeline over the whole app.
+    for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
+      document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+    }
+    el.addEventListener('touchstart', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    el.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
     el.addEventListener('pointerdown', (e) => {
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.tapDownAt = { x: e.clientX, y: e.clientY };
@@ -316,6 +327,7 @@ export class BoardView {
       if (this.pointers.size === 2) {
         const [a, b] = [...this.pointers.values()];
         this.pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+        this.pinchMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       }
     });
     el.addEventListener('pointermove', (e) => {
@@ -332,16 +344,27 @@ export class BoardView {
         p.x = e.clientX; p.y = e.clientY;
         const [a, b] = [...this.pointers.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (this.pinchDist > 0) this.dist = clamp(this.dist * (this.pinchDist / d), MIN_DIST, MAX_DIST);
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        if (this.pinchDist > 0) {
+          // Exponent >1 makes the zoom feel responsive instead of syrupy.
+          this.dist = clamp(this.dist * Math.pow(this.pinchDist / d, 1.35), MIN_DIST, MAX_DIST);
+          this.distTarget = null;
+          // Two-finger pan: follow the pinch midpoint like a real map.
+          const scale = this.dist / el.clientHeight * 1.35;
+          this.focus.y += (mid.y - this.pinchMid.y) * scale;
+          this.focus.x -= (mid.x - this.pinchMid.x) * scale;
+          this.clampFocus();
+        }
         this.pinchDist = d;
+        this.pinchMid = mid;
         return;
       }
       p.x = e.clientX; p.y = e.clientY;
     });
     const up = (e: PointerEvent) => {
+      const moved = Math.hypot(e.clientX - this.tapDownAt.x, e.clientY - this.tapDownAt.y);
       // A short, unmoved press with an armed action = a map tap.
       if (this.pendingTap && this.pointers.size === 1) {
-        const moved = Math.hypot(e.clientX - this.tapDownAt.x, e.clientY - this.tapDownAt.y);
         if (moved < 12) {
           const w = this.pickWorld(e.clientX, e.clientY);
           if (w) {
@@ -349,6 +372,18 @@ export class BoardView {
             this.pendingTap = null;
             cb(w);
           }
+        }
+      } else if (this.pointers.size === 1 && moved < 14) {
+        // Double-tap: quick zoom toggle between battle and board altitude.
+        const now = performance.now();
+        const near = Math.hypot(e.clientX - this.lastTap.x, e.clientY - this.lastTap.y) < 40;
+        if (now - this.lastTap.t < 320 && near) {
+          const w = this.pickWorld(e.clientX, e.clientY);
+          if (w && this.dist > 40) { this.focus.set(w.x, w.z); this.clampFocus(); }
+          this.distTarget = this.dist > 40 ? 18 : 85;
+          this.lastTap.t = -999;
+        } else {
+          this.lastTap = { t: now, x: e.clientX, y: e.clientY };
         }
       }
       this.pointers.delete(e.pointerId);
@@ -831,6 +866,12 @@ export class BoardView {
     }
 
     this.effects.update(dt);
+
+    // Double-tap zoom tween.
+    if (this.distTarget !== null) {
+      this.dist += (this.distTarget - this.dist) * Math.min(1, dt * 6);
+      if (Math.abs(this.dist - this.distTarget) < 0.5) this.distTarget = null;
+    }
 
     // Camera: idle eases home — to the battle when engaged, to the whole
     // continent when surveying from altitude (keeps the board centered).
