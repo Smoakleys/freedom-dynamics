@@ -12,7 +12,7 @@ import { armyPower, frontInfos, activeFronts, visibleNations, type FrontInfo } f
 import type { GameState, GameEvent } from '../game/state';
 
 const REVEAL_STEPS = 2;          // conquest steps visible past the contested territory
-const UNIT_VIS_DIST = 70;        // camera distance where unit pieces appear
+const UNIT_VIS_DIST = 48;        // camera distance where unit pieces appear
 const MIN_DIST = 11, MAX_DIST = 125;
 
 // Line index → model file. Missing files fall back to primitive pieces.
@@ -470,10 +470,9 @@ export class BoardView {
       const cx = terrs.reduce((s, t) => s + t.cx, 0) / terrs.length;
       const cy = terrs.reduce((s, t) => s + t.cy, 0) / terrs.length;
       const w = gridToWorld(cx, cy);
+      if (!this.boardIsVisible(vis, n.id)) continue;  // true fog: no hint at all
       const conquered = terrs.every(t => owned.has(t.id));
-      const label = this.boardIsVisible(vis, n.id)
-        ? mkText(n.name.toUpperCase(), { size: 7, color: conquered ? 'rgba(242,193,78,0.9)' : 'rgba(238,242,248,0.92)', weight: 900 })
-        : mkText('[ UNSURVEYED ]', { size: 4, color: 'rgba(170,178,190,0.75)' });
+      const label = mkText(n.name.toUpperCase(), { size: 7, color: conquered ? 'rgba(242,193,78,0.9)' : 'rgba(238,242,248,0.92)', weight: 900 });
       label.position.set(w.x, 3, w.z);
       this.labelLayer.add(label);
       placed.push({ x: w.x, z: w.z });
@@ -591,7 +590,7 @@ export class BoardView {
       c.z += dz / d * step;
       c.mesh.position.set(c.x, 0, c.z);
       c.mesh.rotation.y = Math.atan2(dx, dz);
-      c.mesh.scale.setScalar(clamp(this.dist / 24, 1, 2.6));
+      c.mesh.visible = this.dist < UNIT_VIS_DIST * 1.4;
     }
   }
 
@@ -637,8 +636,8 @@ export class BoardView {
     }
     for (const [tid, grp] of this.pickets) {
       if (!live.has(tid)) { this.scene.remove(grp); this.pickets.delete(tid); continue; }
-      grp.visible = this.dist < 110;
-      grp.scale.setScalar(clamp(this.dist / 24, 1, 2.4));
+      grp.visible = this.dist < UNIT_VIS_DIST;
+      grp.scale.setScalar(1);
     }
   }
 
@@ -1006,9 +1005,10 @@ export class BoardView {
       // invisible from near-top-down and aircraft read as parked (B3).
       const shadow = p.mesh.userData.shadow as THREE.Mesh | undefined;
       if (shadow) shadow.position.y = -bob + 0.06;
-      // Pose life: wider per-piece scale variation kills the mannequin look.
+      // Units are FIXED world scale — they live in the world, not the UI.
+      // Zoom out and they genuinely shrink away (Bridger's rule).
       const jitterScale = 0.88 + ((p.slot * 31) % 27) / 100;
-      p.mesh.scale.setScalar(clamp(this.dist / 24, 1, 2.1) * jitterScale);
+      p.mesh.scale.setScalar(jitterScale);
     }
   }
 

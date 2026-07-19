@@ -62,6 +62,16 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
   };
   const byId = new Map(board.territories.map(t => [t.id, t]));
   const nationOf = (t: { nation: number }) => board.nations[t.nation];
+  // TRUE fog of war: nations you don't border simply do not exist yet — their
+  // land renders as open sea. The world visibly GROWS as you conquer.
+  const hidden = new Set<number>();
+  for (const t of board.territories) {
+    if (!st.visibleNations.has(t.nation)) hidden.add(t.id);
+  }
+  const lbl = (k: number): number => {
+    const l = board.labels[k];
+    return l >= 0 && hidden.has(l) ? -1 : l;
+  };
 
   // — Fills + borders on a coarse pixel canvas, upscaled with smoothing so
   //   coastlines and borders come out organic instead of stair-stepped —
@@ -99,20 +109,20 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
   for (let gy = 0; gy < GRID_H; gy++) {
     for (let gx = 0; gx < GRID_W; gx++) {
       const k = gy * GRID_W + gx;
-      const l = board.labels[k];
+      const l = lbl(k);
       let c: [number, number, number];
       if (l < 0) {
-        // Shallow ring where sea touches land gives the coast a hand-inked halo.
+        // Shallow ring where sea touches KNOWN land — hand-inked coast halo.
         const touchesLand =
-          (gx > 0 && board.labels[k - 1] >= 0) || (gx < GRID_W - 1 && board.labels[k + 1] >= 0) ||
-          (gy > 0 && board.labels[k - GRID_W] >= 0) || (gy < GRID_H - 1 && board.labels[k + GRID_W] >= 0);
+          (gx > 0 && lbl(k - 1) >= 0) || (gx < GRID_W - 1 && lbl(k + 1) >= 0) ||
+          (gy > 0 && lbl(k - GRID_W) >= 0) || (gy < GRID_H - 1 && lbl(k + GRID_W) >= 0);
         c = touchesLand ? shallowRGB : seaRGB;
       } else {
         c = cellColor(l);
         // Border / coast detection against left+up neighbors. Borders between
         // NATIONS draw darker than internal territory borders.
-        const ll = gx > 0 ? board.labels[k - 1] : -1;
-        const lu = gy > 0 ? board.labels[k - GRID_W] : -1;
+        const ll = gx > 0 ? lbl(k - 1) : -1;
+        const lu = gy > 0 ? lbl(k - GRID_W) : -1;
         if (ll < 0 || lu < 0) c = coastRGB;
         else if (ll !== l || lu !== l) {
           const tl = byId.get(l), tn = byId.get(ll !== l ? ll : lu);
@@ -211,22 +221,8 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
     }
   }
 
-  // — Fog treatment: hatch + label on unexplored land —
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth = 1.5 * K;
-  for (const t of board.territories) {
-    if (owner(t) !== 'fog') continue;
-    const r = mulberry32(t.id * 77);
-    for (let i = 0; i < 26; i++) {
-      const hx = (t.cx + (r() - 0.5) * 46) * SX;
-      const hy = (t.cy + (r() - 0.5) * 46) * SY;
-      if (labelAt(board, hx / SX, hy / SY) !== t.id) continue;
-      ctx.beginPath();
-      ctx.moveTo(hx - 8 * K, hy + 8 * K);
-      ctx.lineTo(hx + 8 * K, hy - 8 * K);
-      ctx.stroke();
-    }
-  }
+  // (Unexplored nations are painted as open sea above — no fog hatching; the
+  // world simply hasn't been surveyed yet.)
 
   // — Ownership stamps + industry. ALL text lives on the sprite overlay layer
   //   (baked labels magnified into blur at close zoom — reviewer B1). —
