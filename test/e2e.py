@@ -135,7 +135,9 @@ try:
             page.mouse.move(cx, cy); page.mouse.wheel(0, 120); time.sleep(0.05)
         time.sleep(2)
         page.screenshot(path=os.path.join(ART, "e2e_far.png"))
-        for _ in range(13):
+        # Strategic → operational: stop near the label/detail transition so
+        # the visual gate actually exercises the designed mid zoom tier.
+        for _ in range(7):
             page.mouse.move(cx, cy); page.mouse.wheel(0, -120); time.sleep(0.05)
         time.sleep(11)
         page.screenshot(path=os.path.join(ART, "e2e_mid.png"))

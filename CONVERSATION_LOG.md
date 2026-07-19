@@ -89,3 +89,56 @@
   full spec preserved in HANDOFF.md). RENDERING PENDING.
 - Bridger: create HANDOFF.md + CONVERSATION_LOG.md, update every conversation
   (this entry). Session usage at limit; files written for seamless resume.
+
+## 2026-07-19 — Visual overhaul resumed
+- Bridger: "Alright let's get started on the project. Continually update handoff
+  file and log so any agent could always pick up where you leave off. Currently
+  we need a serious visual overhaul let's do it."
+- Current agent resumed from HANDOFF.md, re-read PLAN.md and the mandatory
+  visual gate, inspected the current painter and the far/mid/close E2E frames,
+  and began the locked Round 1 six-direction code-rendered style comparison.
+  Durable-state updates are part of every milestone in this pass.
+- Round 1 completed: six code-rendered, same-geometry directions (Ink Atlas,
+  Bold Board, Midnight Ops, Pastel Provinces, Duotone Field, Carved Inlay) plus
+  a contact sheet were generated under `test/artifacts/visual_round1/` from
+  `tools/render_visual_round1.py`. Agent recommendation: Bold Board first,
+  Duotone Field second. Awaiting Bridger's best/second pick for Round 2.
+- Bridger Round 1 verdict: "Bold board is by far the best option but not
+  perfect." Bold Board locked as the winner; Round 2 began as controlled
+  branches around border weight/hierarchy, label treatment, palette warmth,
+  and contested treatment while preserving the winning bold-board grammar.
+- Round 2 completed: six Bold Board branches rendered under
+  `test/artifacts/visual_round2/` (Tuned Original, Lighter Seams, Nation
+  Hierarchy, Color-Forward, Warm Premium, Front Signal). Agent recommends
+  Lighter Seams first, with Nation Hierarchy's border structure as a possible
+  element to steal. Awaiting Bridger's Round 2 pick/critique.
+- Bridger accepted the Bold Board refinement "at a high level" and noted the
+  game should have multiple zoom levels with small effects to improve it.
+  Direction locked as a zoom ladder: Lighter Seams at strategic altitude;
+  progressively reveal territory identity/front symbols at mid and sparse
+  infrastructure/battle effects close. Live implementation authorized.
+- Agent implemented the live Bold Board/Lighter Seams renderer and three-tier
+  zoom ladder. The old noisy raster grammar was replaced with cached smoothed
+  vector territory/nation contours, saturated flat fields, hairline internal
+  seams, strong national/coast edges, and quieter contested hatching. Far zoom
+  now carries strategic nation labels and centers the currently visible land;
+  mid zoom introduces smaller territory chips plus sparse in-country roads and
+  hubs; close zoom clears labels for fixed-world-scale units and restrained
+  seam/chevron/tracer/explosion effects. A first screenshot review caught and
+  corrected oversized labels, an infrastructure spiderweb, a close-range unit
+  pile, edge-clipped labels, and a far-to-mid empty-sea camera transition.
+  Added a fast `tools/capture_zoom_ladder.py` visual harness. Build, 18 Vitest
+  tests, the first 16-assert E2E run, rapid far/mid/close captures, and a live
+  in-app desktop smoke review are green; final full gate rerun remains before
+  deployment.
+- Final exact-build gate passed: production build, 18/18 Vitest checks, 16/16
+  Playwright gameplay assertions, and zero console errors. Harsh review of the
+  regenerated far/mid/close artifacts passes all three frames at the intended
+  ladder: strategic Bold Board, operational territory/front context, close
+  finite-unit battle tableau with restrained live effects. No bug-class visual
+  issue remains. Logged two taste-level watch items for future direct Bridger
+  feedback: contested hatch strength and a possible additional ~10% close-unit
+  shrink. Because the current execution policy did not authorize delegation,
+  the primary agent documented the required harsh checklist directly rather
+  than misrepresenting an independent reviewer. Deployment began after this
+  checkpoint.

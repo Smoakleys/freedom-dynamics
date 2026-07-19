@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-19 ~04:00 (mid visual-overhaul, session budget near limit)*
+*Last update: 2026-07-19 ~16:45 (Bold Board zoom ladder passes final gate; deploying)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -52,6 +52,86 @@ Bridger rejected the "blocky art map"; target = SMOOTH AND SIMPLE. Process he
 mandated: rounds of small code-rendered concept maps, maximally different,
 he picks best-of-round, branch around winners, repeat. NO verbal style
 questions; NO AI mood images — code renders only.
+- 2026-07-19 ~11:50: Bridger resumed the project and ordered a serious visual
+  overhaul. Current agent inspected PLAN, this handoff, the visual gate, the
+  renderer, and all three existing E2E frames. The live map still visibly
+  fails the target: pixel-derived coast/border contours, heavy black seams,
+  muddy contested magenta, noisy terrain glyphs/grain, and map detail that
+  competes with units at mid/close zoom. Work has started on the locked six-
+  direction Round 1 code-rendered comparison using one shared smooth geometry.
+- 2026-07-19 ~12:05: Round 1 is rendered. Source:
+  `tools/render_visual_round1.py`. Outputs:
+  `test/artifacts/visual_round1/01_ink_atlas.png` through
+  `06_carved_inlay.png`; comparison board:
+  `test/artifacts/visual_round1/round1_contact_sheet.png`. The renderer uses
+  identical supersampled organic geometry, labels, ownership, and contested
+  territory in all six frames. Current agent recommendation is **2 Bold Board**
+  as the best north-star match, with **5 Duotone Field** as the cleanest second
+  branch. PAUSED ONLY for Bridger's best/second choice; do not rewrite live
+  `paint.ts` until that visual choice is made. Then produce a narrower Round 2
+  branching around the winner before locking the visual bible.
+- 2026-07-19 ~12:15: Bridger verdict: **"Bold board is by far the best option
+  but not perfect."** Bold Board is now the locked Round 1 winner. Preserve its
+  saturation, decisive faction colors, dark sea, and graphic readability.
+  Round 2 is branching specifically across border hierarchy/weight, label-chip
+  density, palette temperature, and contested grammar. Do not fall back toward
+  the pale, monochrome, pastel, or dark-command-board directions.
+- 2026-07-19 ~12:25: Round 2 rendered from
+  `tools/render_visual_round2.py`; outputs are under
+  `test/artifacts/visual_round2/` with comparison board
+  `round2_contact_sheet.png`. Six branches: Tuned Original, Lighter Seams,
+  Nation Hierarchy, Color-Forward, Warm Premium, Front Signal. Current agent
+  recommendation: **2 Lighter Seams** as the cleanest preservation of the
+  winner; borrow the nation/coast hierarchy from **3 Nation Hierarchy** if
+  desired. **6 Front Signal** is the diagnostic branch for stronger battle
+  state. Await Bridger pick/critique, then do one final narrow refinement round
+  or lock a visual bible if the answer is decisive.
+- 2026-07-19 ~12:35: Bridger accepted the direction **at a high level** and
+  explicitly called for multiple zoom levels plus small effects. Working lock:
+  **Lighter Seams** is the strategic/far altitude. The visual system must now
+  be a progressive zoom ladder, not one texture doing everything:
+  - FAR: smooth saturated nations, thin province seams, strong nation/coast
+    edge, only essential strategic labels/front state.
+  - MID: territory labels, town/industry marks, restrained contested hatch,
+    momentum/front symbols.
+  - CLOSE: sparse infrastructure/map micro-detail plus small battle effects;
+    never restore grain, procedural terrain glyph clutter, or giant FX.
+  Units remain fixed world scale and invisible at far zoom. Implementation of
+  the live renderer and zoom-dependent overlay is now authorized.
+- 2026-07-19 ~16:35: the live **Bold Board / Lighter Seams zoom ladder is
+  implemented** in `src/render/board/paint.ts` and `src/render/boardview.ts`.
+  The painter now traces the territory and nation label fields into smoothed
+  vector contours on a 2048x4096 texture, uses saturated jewel nations/gold
+  empire/deep teal sea, hairline province seams, decisive national/coast
+  outlines, and a quieter contested hatch. Removed the previous grain, terrain
+  glyphs, scars, waves/grid, building clusters, halftone, and vignette noise.
+  BoardView now has scale-aware nation labels, smaller collision-pruned
+  territory chips, sparse nearest-neighbor in-country roads/tiny hubs, and a
+  zoom ladder: nation strategy far; territory/front/infrastructure mid; labels
+  clear and fixed-scale unit battle/effects close. Unit caps were cut from a
+  possible ~100-piece pile to a representative tableau (~10-25 depending on
+  seam room/wave), while seam glow, chevrons, flashes, tracers, convoys, and
+  strikes remain restrained live effects. Strategic camera centers the visible
+  land bounds; a stranded-camera guard returns mid/close zoom to the live front.
+  Added `tools/capture_zoom_ladder.py` for a <30s representative visual capture,
+  writing `test/artifacts/zoom_{far,mid,close}.png`. Production build passes,
+  Vitest 18/18 passed before final camera polish, first full E2E passed 16/16,
+  rapid three-altitude captures have been reviewed, and in-app desktop review
+  shows zero console errors. Final build/test/full E2E rerun and durable visual
+  gate verdict are the remaining pre-deploy work.
+- 2026-07-19 ~16:45 FINAL LOCAL GATE: production build passed; Vitest 18/18;
+  Playwright E2E 16/16; no fresh-boot or midgame console errors. Final artifacts
+  are `test/artifacts/e2e_far.png`, `e2e_mid.png`, `e2e_close.png`. Harsh frame
+  review verdict: **FAR PASS** (clean Bold Board hierarchy, ownership/nations at
+  a glance); **MID PASS** (single restrained label tier, sparse hub/road cues,
+  front dominates); **CLOSE PASS** (fixed-scale finite unit tableau, faction
+  silhouettes and small live effects readable, no label clutter). No bug-class
+  visual issue remains. Taste-level watch items for Bridger feedback: whether
+  the contested diagonal hatch should become still quieter/dotted, and whether
+  close units should shrink another ~10%. The required independent fork review
+  could not be invoked under the current no-delegation execution policy, so the
+  primary agent performed and documented the same harsh three-frame checklist
+  instead of falsely claiming a fork verdict. Source + gh-pages deploy is next.
 - Warm signal so far: he picked "A — Vector-crisp" (flat fills, uniform ~2px
   ink borders, zero texture) over soft-premium and flat-plates, but said
   "nothing is stable".

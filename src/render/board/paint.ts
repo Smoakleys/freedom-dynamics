@@ -1,338 +1,201 @@
-// Board painter: renders the map to an offscreen canvas used as the ground
-// texture. Repainted only when ownership/fog changes, never per-frame.
+// Bold Board painter: smooth vector contours for the strategic altitude.
+// The texture stays deliberately quiet; zoom-dependent identity and battle
+// detail live in BoardView so the map does not carry every scale at once.
 
-import { mulberry32 } from '../rng';
-import { Board, GRID_W, GRID_H, labelAt } from './gen';
+import { Board, GRID_W, GRID_H } from './gen';
 
 export const TEX_W = 2048;
 export const TEX_H = 4096;
 const SX = TEX_W / GRID_W;
 const SY = TEX_H / GRID_H;
-const K = TEX_W / 1440;   // scale for stroke widths / fonts vs the original layout
+const K = TEX_W / 1440;
 
-const SEA = '#26343f';
-const SEA_LINE = 'rgba(255,255,255,0.045)';
-const COAST = '#1c242e';
-const BORDER = 'rgba(28,30,36,0.85)';
-const FOG_BG = '#232833';
-const GOLD_BASE = { h: 41, s: 66, l: 53 };
-const GRAY_BASE = { h: 212, s: 13, l: 43 };
-const CONTESTED = { h: 27, s: 42, l: 49 };
+const SEA = '#10333d';
+const EMPIRE = '#e8b526';
+const CONTESTED = '#9b5673';
+const INTERNAL = '#3d3540';
+const NATIONAL = '#201e23';
+const HATCH = 'rgba(255, 209, 79, 0.30)';
+const JEWELS = ['#765287', '#347b60', '#437a9e', '#35766f', '#6c557f', '#4c7493'];
 
 export interface PaintState {
-  owned: Set<number>;        // territory ids you hold
-  contested: Set<number>;    // active front territory ids
+  owned: Set<number>;
+  contested: Set<number>;
   visibleNations: Set<number>;
   company: string;
 }
 
-function hslToRgb(h: number, s: number, l: number): [number, number, number] {
-  h = ((h % 360) + 360) % 360 / 360; s /= 100; l /= 100;
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  const f = (t: number) => {
-    t = ((t % 1) + 1) % 1;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
+interface Pt { x: number; y: number }
+type Loops = Map<number, Pt[][]>;
+interface ContourCache { territories: Loops; nations: Loops }
+const contourCache = new WeakMap<Board, ContourCache>();
+
+function key(x: number, y: number): string { return `${x},${y}`; }
+
+// Trace the directed cell edges for every value in a label field, then chain
+// them into closed loops. Rendering those loops with quadratic joins turns the
+// old pixel-derived silhouette into shared, smooth vector boundaries.
+function traceField(field: Int16Array): Loops {
+  const byValue = new Map<number, [Pt, Pt][]>();
+  const add = (v: number, a: Pt, b: Pt) => {
+    if (v < 0) return;
+    const list = byValue.get(v) ?? [];
+    list.push([a, b]);
+    byValue.set(v, list);
   };
-  return [Math.round(f(h + 1 / 3) * 255), Math.round(f(h) * 255), Math.round(f(h - 1 / 3) * 255)];
+  const at = (x: number, y: number): number =>
+    x < 0 || y < 0 || x >= GRID_W || y >= GRID_H ? -1 : field[y * GRID_W + x];
+
+  for (let y = 0; y < GRID_H; y++) {
+    for (let x = 0; x < GRID_W; x++) {
+      const v = at(x, y);
+      if (v < 0) continue;
+      if (at(x, y - 1) !== v) add(v, { x, y }, { x: x + 1, y });
+      if (at(x + 1, y) !== v) add(v, { x: x + 1, y }, { x: x + 1, y: y + 1 });
+      if (at(x, y + 1) !== v) add(v, { x: x + 1, y: y + 1 }, { x, y: y + 1 });
+      if (at(x - 1, y) !== v) add(v, { x, y: y + 1 }, { x, y });
+    }
+  }
+
+  const out: Loops = new Map();
+  for (const [value, edges] of byValue) {
+    const starts = new Map<string, number[]>();
+    edges.forEach((e, i) => {
+      const k = key(e[0].x, e[0].y);
+      const list = starts.get(k) ?? [];
+      list.push(i);
+      starts.set(k, list);
+    });
+    const used = new Uint8Array(edges.length);
+    const loops: Pt[][] = [];
+    for (let seed = 0; seed < edges.length; seed++) {
+      if (used[seed]) continue;
+      const loop: Pt[] = [];
+      let edgeIndex = seed;
+      const first = edges[seed][0];
+      let guard = 0;
+      while (!used[edgeIndex] && guard++ < edges.length + 4) {
+        used[edgeIndex] = 1;
+        const [a, b] = edges[edgeIndex];
+        loop.push(a);
+        if (b.x === first.x && b.y === first.y) break;
+        const candidates = starts.get(key(b.x, b.y)) ?? [];
+        const next = candidates.find(i => !used[i]);
+        if (next === undefined) break;
+        edgeIndex = next;
+      }
+      if (loop.length < 4) continue;
+      // Remove collinear grid vertices before smoothing. This dramatically
+      // reduces Path2D complexity while preserving the exact shared contour.
+      const simple: Pt[] = [];
+      for (let i = 0; i < loop.length; i++) {
+        const a = loop[(i - 1 + loop.length) % loop.length];
+        const b = loop[i];
+        const c = loop[(i + 1) % loop.length];
+        if ((a.x === b.x && b.x === c.x) || (a.y === b.y && b.y === c.y)) continue;
+        simple.push(b);
+      }
+      if (simple.length >= 4) loops.push(simple);
+    }
+    out.set(value, loops);
+  }
+  return out;
 }
 
-function terrColor(base: { h: number; s: number; l: number }, id: number): [number, number, number] {
-  const r = mulberry32(id * 733 + 5);
-  return hslToRgb(
-    base.h + (r() - 0.5) * 10,
-    base.s + (r() - 0.5) * 10,
-    base.l + (r() - 0.5) * 12
-  );
+function contours(board: Board): ContourCache {
+  const hit = contourCache.get(board);
+  if (hit) return hit;
+  const nationField = new Int16Array(board.labels.length).fill(-1);
+  const nationByTerritory = new Map(board.territories.map(t => [t.id, t.nation]));
+  for (let i = 0; i < board.labels.length; i++) {
+    const tid = board.labels[i];
+    nationField[i] = tid < 0 ? -1 : (nationByTerritory.get(tid) ?? -1);
+  }
+  const made = { territories: traceField(board.labels), nations: traceField(nationField) };
+  contourCache.set(board, made);
+  return made;
+}
+
+function pathFor(loops: Pt[][] | undefined): Path2D {
+  const path = new Path2D();
+  if (!loops) return path;
+  for (const loop of loops) {
+    if (loop.length < 3) continue;
+    const p0 = loop[0], p1 = loop[1];
+    path.moveTo((p0.x + p1.x) * 0.5 * SX, (p0.y + p1.y) * 0.5 * SY);
+    for (let i = 1; i <= loop.length; i++) {
+      const p = loop[i % loop.length];
+      const n = loop[(i + 1) % loop.length];
+      path.quadraticCurveTo(p.x * SX, p.y * SY, (p.x + n.x) * 0.5 * SX, (p.y + n.y) * 0.5 * SY);
+    }
+    path.closePath();
+  }
+  return path;
+}
+
+function shade(hex: string, amount: number): string {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const c = (shift: number) => Math.max(0, Math.min(255, ((n >> shift) & 255) + amount));
+  return `rgb(${c(16)},${c(8)},${c(0)})`;
+}
+
+function territoryFill(board: Board, st: PaintState, tid: number, nation: number): string {
+  if (st.owned.has(tid)) return shade(EMPIRE, (tid % 3 - 1) * 3);
+  if (st.contested.has(tid)) return CONTESTED;
+  const base = JEWELS[(nation * 5 + 1) % JEWELS.length];
+  return shade(base, (tid % 3 - 1) * 4);
 }
 
 export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintState): void {
   canvas.width = TEX_W;
   canvas.height = TEX_H;
   const ctx = canvas.getContext('2d')!;
-
-  const owner = (t: { id: number; nation: number }): 'you' | 'foe' | 'contested' | 'fog' => {
-    if (st.owned.has(t.id)) return 'you';
-    if (st.contested.has(t.id)) return 'contested';
-    if (st.visibleNations.has(t.nation)) return 'foe';
-    return 'fog';
-  };
-  const byId = new Map(board.territories.map(t => [t.id, t]));
-  const nationOf = (t: { nation: number }) => board.nations[t.nation];
-  // TRUE fog of war: nations you don't border simply do not exist yet — their
-  // land renders as open sea. The world visibly GROWS as you conquer.
-  const hidden = new Set<number>();
-  for (const t of board.territories) {
-    if (!st.visibleNations.has(t.nation)) hidden.add(t.id);
-  }
-  const lbl = (k: number): number => {
-    const l = board.labels[k];
-    return l >= 0 && hidden.has(l) ? -1 : l;
-  };
-
-  // — Fills + borders on a coarse pixel canvas, upscaled with smoothing so
-  //   coastlines and borders come out organic instead of stair-stepped —
-  const coarse = document.createElement('canvas');
-  coarse.width = GRID_W; coarse.height = GRID_H;
-  const cctx = coarse.getContext('2d')!;
-  const im = cctx.createImageData(GRID_W, GRID_H);
-  const px = im.data;
-  const seaRGB: [number, number, number] = [42, 60, 74];
-  const shallowRGB: [number, number, number] = [60, 84, 98];
-  const fogRGB: [number, number, number] = [35, 40, 51];
-  const coastRGB: [number, number, number] = [26, 34, 44];
-  const borderRGB: [number, number, number] = [40, 42, 48];
-  const colorCache = new Map<number, [number, number, number]>();
-  const cellColor = (l: number): [number, number, number] => {
-    const t = byId.get(l);
-    if (!t) return seaRGB;
-    const o = owner(t);
-    const key = l * 10 + (o === 'you' ? 1 : o === 'contested' ? 2 : o === 'foe' ? 3 : 4);
-    let c = colorCache.get(key);
-    if (!c) {
-      // Enemy land uses its NATION's palette family so countries read as
-      // distinct blocs; your empire is always gold.
-      // Contested keeps its NATION'S cold hue (slightly lifted) — the gold
-      // hatch marks the fight; a warm fill would smear into the empire.
-      const nc = nationOf(t).color;
-      c = o === 'you' ? terrColor(GOLD_BASE, l)
-        : o === 'contested' ? terrColor({ h: nc.h, s: nc.s + 8, l: nc.l + 7 }, l)
-        : o === 'foe' ? terrColor(nc, l)
-        : fogRGB;
-      colorCache.set(key, c);
-    }
-    return c;
-  };
-  for (let gy = 0; gy < GRID_H; gy++) {
-    for (let gx = 0; gx < GRID_W; gx++) {
-      const k = gy * GRID_W + gx;
-      const l = lbl(k);
-      let c: [number, number, number];
-      if (l < 0) {
-        // Shallow ring where sea touches KNOWN land — hand-inked coast halo.
-        const touchesLand =
-          (gx > 0 && lbl(k - 1) >= 0) || (gx < GRID_W - 1 && lbl(k + 1) >= 0) ||
-          (gy > 0 && lbl(k - GRID_W) >= 0) || (gy < GRID_H - 1 && lbl(k + GRID_W) >= 0);
-        c = touchesLand ? shallowRGB : seaRGB;
-      } else {
-        c = cellColor(l);
-        // Border / coast detection against left+up neighbors. Borders between
-        // NATIONS draw darker than internal territory borders.
-        const ll = gx > 0 ? lbl(k - 1) : -1;
-        const lu = gy > 0 ? lbl(k - GRID_W) : -1;
-        if (ll < 0 || lu < 0) c = coastRGB;
-        else if (ll !== l || lu !== l) {
-          const tl = byId.get(l), tn = byId.get(ll !== l ? ll : lu);
-          c = tl && tn && tl.nation !== tn.nation ? coastRGB : borderRGB;
-        }
-      }
-      px[k * 4] = c[0]; px[k * 4 + 1] = c[1]; px[k * 4 + 2] = c[2]; px[k * 4 + 3] = 255;
-    }
-  }
-  cctx.putImageData(im, 0, 0);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(coarse, 0, 0, TEX_W, TEX_H);
-
-  // — Sea dressing: faint graticule grid + wave strokes —
-  ctx.strokeStyle = 'rgba(255,255,255,0.035)';
-  ctx.lineWidth = 1.5 * K;
-  for (let gx = 0; gx < TEX_W; gx += 128 * K) {
-    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, TEX_H); ctx.stroke();
-  }
-  for (let gy = 0; gy < TEX_H; gy += 128 * K) {
-    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(TEX_W, gy); ctx.stroke();
-  }
-  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-  ctx.lineWidth = 2 * K;
-  const seaR = mulberry32(9);
-  for (let i = 0; i < 150; i++) {
-    const y = seaR() * TEX_H, x = seaR() * TEX_W, len = (30 + seaR() * 80) * K;
-    if (labelAt(board, x / SX, y / SY) >= 0) continue;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.quadraticCurveTo(x + len / 2, y - 5 * K, x + len, y);
-    ctx.stroke();
-  }
-
-  // — Paper grain over land —
-  const grain = mulberry32(31);
-  ctx.globalAlpha = 0.05;
-  for (let i = 0; i < 5200; i++) {
-    const x = grain() * TEX_W, y = grain() * TEX_H;
-    ctx.fillStyle = grain() > 0.5 ? '#fff' : '#000';
-    ctx.fillRect(x, y, 2.2 * K, 2.2 * K);
-  }
-  ctx.globalAlpha = 1;
-
-  // — Terrain glyphs: mountains, forests, and stipple inside territories —
-  for (const t of board.territories) {
-    const o = owner(t);
-    if (o === 'fog') continue;
-    const r = mulberry32(t.id * 191 + 7);
-    const glyphs = 5 + Math.floor(r() * 5);
-    // Quiet cartographic marks — loud glyphs read as scribbles up close.
-    ctx.strokeStyle = o === 'you' ? 'rgba(74,52,12,0.32)' : 'rgba(30,34,42,0.34)';
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.lineWidth = 1.8 * K;
-    for (let g = 0; g < glyphs; g++) {
-      const gx = (t.cx + (r() - 0.5) * 40) * SX;
-      const gy = (t.cy + (r() - 0.5) * 40) * SY;
-      if (labelAt(board, gx / SX, gy / SY) !== t.id) continue;
-      const kind = r();
-      const sc = (0.45 + r() * 0.25) * K;
-      const rot = (r() - 0.5) * 0.35;
-      ctx.save();
-      ctx.translate(gx, gy);
-      ctx.rotate(rot);
-      if (kind > 0.55) {
-        // Mountain: two peaks + a snow tick.
-        ctx.beginPath();
-        ctx.moveTo(-12 * sc, 7 * sc);
-        ctx.lineTo(-3 * sc, -9 * sc);
-        ctx.lineTo(2 * sc, 2 * sc);
-        ctx.lineTo(7 * sc, -5 * sc);
-        ctx.lineTo(13 * sc, 7 * sc);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(-5.5 * sc, -4 * sc);
-        ctx.lineTo(-3 * sc, -9 * sc);
-        ctx.lineTo(-0.5 * sc, -4 * sc);
-        ctx.stroke();
-      } else if (kind > 0.2) {
-        // Forest: three trees.
-        for (let k2 = 0; k2 < 3; k2++) {
-          const fx = (k2 - 1) * 10 * sc, fy = (k2 % 2) * 6 * sc;
-          ctx.beginPath();
-          ctx.arc(fx, fy - 5 * sc, 4.5 * sc, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillRect(fx - 1.2 * sc, fy, 2.4 * sc, 6 * sc);
-        }
-      } else {
-        // Stipple field.
-        for (let k2 = 0; k2 < 8; k2++) {
-          ctx.fillRect((r() - 0.5) * 26 * sc, (r() - 0.5) * 16 * sc, 2 * K, 2 * K);
-        }
-      }
-      ctx.restore();
-    }
-  }
-
-  // (Unexplored nations are painted as open sea above — no fog hatching; the
-  // world simply hasn't been surveyed yet.)
-
-  // — Ownership stamps + industry. ALL text lives on the sprite overlay layer
-  //   (baked labels magnified into blur at close zoom — reviewer B1). —
-  for (const t of board.territories) {
-    const o = owner(t);
-    if (o !== 'you') continue;
-    drawStar(ctx, t.cx * SX, t.cy * SY, 13 * K, 'rgba(109,78,19,0.8)');
-    // Company towns: small building clusters — the empire looks BUILT ON, not
-    // just tinted (annexed land shows its new management).
-    const r = mulberry32(t.id * 419);
-    for (let c = 0; c < 3; c++) {
-      const bx = (t.cx + (r() - 0.5) * 30) * SX;
-      const by = (t.cy + (r() - 0.5) * 30) * SY;
-      if (labelAt(board, bx / SX, by / SY) !== t.id) continue;
-      for (let b = 0; b < 5 + Math.floor(r() * 3); b++) {
-        const w2 = (6 + r() * 9) * K, h2 = (6 + r() * 12) * K;
-        ctx.fillStyle = r() > 0.4 ? 'rgba(96,70,22,0.85)' : 'rgba(56,40,12,0.85)';
-        ctx.fillRect(bx + (r() - 0.5) * 26 * K, by + (r() - 0.5) * 18 * K, w2, h2);
-      }
-    }
-  }
-
-  // Contested territories get an animated-feel gold dashed ring along their
-  // border with your land instead of a fill change.
-  ctx.strokeStyle = 'rgba(242,193,78,0.9)';
-  ctx.lineWidth = 5 * K;
-  ctx.setLineDash([14 * K, 10 * K]);
-  for (let gy = 1; gy < GRID_H; gy++) {
-    for (let gx = 1; gx < GRID_W; gx++) {
-      const l = board.labels[gy * GRID_W + gx];
-      if (l < 0 || !st.contested.has(l)) continue;
-      const ll = board.labels[gy * GRID_W + gx - 1];
-      const lu = board.labels[(gy - 1) * GRID_W + gx];
-      if ((ll >= 0 && st.owned.has(ll)) || (lu >= 0 && st.owned.has(lu))) {
-        ctx.beginPath();
-        ctx.moveTo(gx * SX - 3 * K, gy * SY);
-        ctx.lineTo(gx * SX + 3 * K, gy * SY);
-        ctx.stroke();
-      }
-    }
-  }
-  ctx.setLineDash([]);
-
-  // War scars: many small scorch marks (big baked blobs smear at close zoom).
-  ctx.fillStyle = 'rgba(30,22,12,0.22)';
-  for (const t of board.territories) {
-    if (!st.contested.has(t.id)) continue;
-    const r = mulberry32(t.id * 613);
-    for (let i = 0; i < 44; i++) {
-      const sxp = (t.cx + (r() - 0.5) * 40) * SX;
-      const syp = (t.cy + (r() - 0.5) * 40) * SY;
-      if (labelAt(board, sxp / SX, syp / SY) !== t.id) continue;
-      ctx.beginPath();
-      ctx.ellipse(sxp, syp, (1 + r() * 2.4) * K, (0.8 + r() * 1.8) * K, r() * Math.PI, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // Contested identity: gold diagonal hatch over the enemy fill (reads at
-  // every zoom, unlike the dashed ring alone).
-  ctx.strokeStyle = 'rgba(242,193,78,0.16)';
-  ctx.lineWidth = 3 * K;
-  for (const t of board.territories) {
-    if (!st.contested.has(t.id)) continue;
-    for (let off = -60; off < 60; off += 7) {
-      const x0 = (t.cx + off) * SX, y0 = (t.cy - 60) * SY;
-      ctx.beginPath();
-      let drawing = false;
-      for (let s = 0; s < 120; s += 2) {
-        const px = x0 + s * SX * 0.7, py = y0 + s * SY;
-        const inT = labelAt(board, px / SX, py / SY) === t.id;
-        if (inT && !drawing) { ctx.moveTo(px, py); drawing = true; }
-        else if (!inT && drawing) { ctx.stroke(); ctx.beginPath(); drawing = false; }
-        else if (inT) ctx.lineTo(px, py);
-      }
-      if (drawing) ctx.stroke();
-    }
-  }
-
-  // — Vignette —
-  const vg = ctx.createRadialGradient(TEX_W / 2, TEX_H / 2, TEX_H * 0.32, TEX_W / 2, TEX_H / 2, TEX_H * 0.62);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.22)');
-  ctx.fillStyle = vg;
+  ctx.fillStyle = SEA;
   ctx.fillRect(0, 0, TEX_W, TEX_H);
-}
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
 
-function drawStar(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string): void {
-  ctx.beginPath();
-  for (let k = 0; k < 10; k++) {
-    const rr = k % 2 === 0 ? r : r * 0.45;
-    const a = -Math.PI / 2 + k * Math.PI / 5;
-    const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr;
-    if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-  }
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
-}
+  const cached = contours(board);
+  const byId = new Map(board.territories.map(t => [t.id, t]));
 
-function drawSpaced(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, spacing: number): void {
-  // Manual letter-spacing (canvas has no reliable letterSpacing on iOS).
-  const widths = [...text].map(ch => ctx.measureText(ch).width + spacing);
-  const total = widths.reduce((a, b) => a + b, -spacing);
-  let cx = x - total / 2;
-  ctx.save();
-  ctx.textAlign = 'left';
-  for (let i = 0; i < text.length; i++) {
-    ctx.fillText(text[i], cx, y);
-    cx += widths[i];
+  // Province plates: thin seams let the saturated color field do the work.
+  for (const t of board.territories) {
+    if (!st.visibleNations.has(t.nation)) continue; // true fog = open sea
+    const path = pathFor(cached.territories.get(t.id));
+    ctx.fillStyle = territoryFill(board, st, t.id, t.nation);
+    ctx.fill(path);
+    ctx.strokeStyle = INTERNAL;
+    ctx.lineWidth = 1.15 * K;
+    ctx.stroke(path);
   }
-  ctx.restore();
+
+  // Nation/coast hierarchy: one decisive outline around each visible country.
+  for (const n of board.nations) {
+    if (!st.visibleNations.has(n.id) || n.territories.length === 0) continue;
+    const path = pathFor(cached.nations.get(n.id));
+    ctx.strokeStyle = NATIONAL;
+    ctx.lineWidth = 4.4 * K;
+    ctx.stroke(path);
+  }
+
+  // Contested remains part of the enemy palette but carries a restrained gold
+  // field signal. The live Three.js seam supplies motion and precise progress.
+  for (const tid of st.contested) {
+    const t = byId.get(tid);
+    if (!t || !st.visibleNations.has(t.nation)) continue;
+    const path = pathFor(cached.territories.get(tid));
+    ctx.save();
+    ctx.clip(path);
+    ctx.strokeStyle = HATCH;
+    ctx.lineWidth = 1.45 * K;
+    const cx = t.cx * SX, cy = t.cy * SY;
+    const span = 95 * Math.max(SX, SY);
+    for (let off = -span; off <= span; off += 25 * K) {
+      ctx.beginPath();
+      ctx.moveTo(cx - span + off, cy + span);
+      ctx.lineTo(cx + span + off, cy - span);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 }

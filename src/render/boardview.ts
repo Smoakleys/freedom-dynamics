@@ -79,7 +79,9 @@ export class BoardView {
   private flags = new Map<number, THREE.Group>();
   private raycaster = new THREE.Raycaster();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  private labelLayer = new THREE.Group();
+  private nationLabelLayer = new THREE.Group();
+  private territoryLabelLayer = new THREE.Group();
+  private detailLayer = new THREE.Group();
   private convoys: { mesh: THREE.Object3D; x: number; z: number; tx: number; tz: number }[] = [];
   private chevrons = new Map<number, THREE.Mesh>();
   private pickets = new Map<number, THREE.Group>();
@@ -109,28 +111,6 @@ export class BoardView {
     );
     plane.rotation.x = -Math.PI / 2;
     this.scene.add(plane);
-
-    // Print-tooth overlay: faint repeating halftone so extreme close-ups keep
-    // texture instead of dissolving into blur.
-    const dotCv = document.createElement('canvas');
-    dotCv.width = dotCv.height = 64;
-    const dctx = dotCv.getContext('2d')!;
-    dctx.fillStyle = 'rgba(0,0,0,0.55)';
-    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
-      dctx.beginPath();
-      dctx.arc(x * 8 + (y % 2) * 4 + 2, y * 8 + 2, 0.9, 0, Math.PI * 2);
-      dctx.fill();
-    }
-    const dotTex = new THREE.CanvasTexture(dotCv);
-    dotTex.wrapS = dotTex.wrapT = THREE.RepeatWrapping;
-    dotTex.repeat.set(90, 180);
-    const tooth = new THREE.Mesh(
-      new THREE.PlaneGeometry(BOARD_W, BOARD_H),
-      new THREE.MeshBasicMaterial({ map: dotTex, transparent: true, opacity: 0.07, depthWrite: false })
-    );
-    tooth.rotation.x = -Math.PI / 2;
-    tooth.position.y = 0.02;
-    this.scene.add(tooth);
 
     this.seam = new THREE.Line(
       this.seamGeo,
@@ -308,6 +288,18 @@ export class BoardView {
     return { x: w.x, z: w.z };
   }
 
+  private strategicCenter(gs: GameState): { x: number; z: number } {
+    const vis = visibleNations(this.board, gs);
+    const terrs = this.board.territories.filter(t => vis.has(t.nation));
+    if (terrs.length === 0) return this.contestedCenter(gs);
+    const minX = Math.min(...terrs.map(t => t.cx));
+    const maxX = Math.max(...terrs.map(t => t.cx));
+    const minY = Math.min(...terrs.map(t => t.cy));
+    const maxY = Math.max(...terrs.map(t => t.cy));
+    const w = gridToWorld((minX + maxX) * 0.5, (minY + maxY) * 0.5);
+    return { x: w.x, z: w.z };
+  }
+
   private setupControls(): void {
     const el = this.canvas;
     el.style.touchAction = 'none';
@@ -433,33 +425,39 @@ export class BoardView {
 
   // Crisp text lives on sprites, not the map texture (avoids close-up blur).
   private rebuildLabels(gs: GameState): void {
-    this.scene.remove(this.labelLayer);
-    this.labelLayer = new THREE.Group();
+    this.scene.remove(this.nationLabelLayer, this.territoryLabelLayer);
+    this.nationLabelLayer = new THREE.Group();
+    this.territoryLabelLayer = new THREE.Group();
     const owned = new Set(gs.owned);
     const contested = new Set(activeFronts(this.board, gs));
     const vis = visibleNations(this.board, gs);
     const placed: { x: number; z: number }[] = [];
 
-    const mkText = (text: string, opts: { size: number; color: string; bg?: string; weight?: number }) => {
+    const mkText = (text: string, opts: { size: number; color: string; chip?: string; weight?: number }) => {
       const cv = document.createElement('canvas');
       const c2 = cv.getContext('2d')!;
-      const font = `${opts.weight ?? 700} 34px ui-monospace, Menlo, monospace`;
+      const font = `${opts.weight ?? 700} 32px ui-sans-serif, system-ui, sans-serif`;
       c2.font = font;
-      const w = Math.ceil(c2.measureText(text).width) + 22;
-      cv.width = w; cv.height = 52;
+      const w = Math.ceil(c2.measureText(text).width) + 30;
+      cv.width = w; cv.height = 54;
       c2.font = font;
-      if (opts.bg) { c2.fillStyle = opts.bg; c2.fillRect(0, 0, w, 52); }
-      c2.strokeStyle = 'rgba(10,12,18,0.85)';
-      c2.lineWidth = 5;
+      if (opts.chip) {
+        c2.fillStyle = opts.chip;
+        c2.beginPath();
+        c2.roundRect(2, 5, w - 4, 44, 16);
+        c2.fill();
+      }
+      c2.strokeStyle = opts.chip ? 'rgba(10,12,18,0.35)' : 'rgba(10,12,18,0.78)';
+      c2.lineWidth = opts.chip ? 2 : 4;
       c2.textBaseline = 'middle';
-      c2.strokeText(text, 11, 27);
+      c2.strokeText(text, 15, 28);
       c2.fillStyle = opts.color;
-      c2.fillText(text, 11, 27);
+      c2.fillText(text, 15, 28);
       const tex = new THREE.CanvasTexture(cv);
       tex.colorSpace = THREE.SRGBColorSpace;
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
-      const s = opts.size / 52;
-      sp.scale.set(w * s, 52 * s, 1);
+      const s = opts.size / 54;
+      sp.scale.set(w * s, 54 * s, 1);
       return sp;
     };
 
@@ -472,9 +470,9 @@ export class BoardView {
       const w = gridToWorld(cx, cy);
       if (!this.boardIsVisible(vis, n.id)) continue;  // true fog: no hint at all
       const conquered = terrs.every(t => owned.has(t.id));
-      const label = mkText(n.name.toUpperCase(), { size: 7, color: conquered ? 'rgba(242,193,78,0.9)' : 'rgba(238,242,248,0.92)', weight: 900 });
+      const label = mkText(n.name.toUpperCase(), { size: 4.6, color: conquered ? 'rgba(53,35,5,0.94)' : 'rgba(255,248,233,0.94)', weight: 900 });
       label.position.set(w.x, 3, w.z);
-      this.labelLayer.add(label);
+      this.nationLabelLayer.add(label);
       placed.push({ x: w.x, z: w.z });
     }
 
@@ -494,15 +492,86 @@ export class BoardView {
         short = short.split(' ').slice(0, -1).join(' ');
       }
       const sp = mkText(isC ? `⚔ ${short.toUpperCase()}` : short.toUpperCase(), {
-        size: isC ? 3.6 : 2.8,
-        color: isC ? 'rgba(255,214,132,0.98)' : isOwned ? 'rgba(38,26,4,1)' : 'rgba(226,232,238,0.85)',
-        weight: isOwned ? 900 : 700
+        size: isC ? 1.95 : 1.55,
+        color: isC ? 'rgba(255,231,174,1)' : 'rgba(255,248,233,0.96)',
+        chip: 'rgba(23,28,38,0.88)',
+        weight: isOwned || isC ? 900 : 750
       });
       sp.position.set(w.x, 1.6, w.z);
-      this.labelLayer.add(sp);
+      this.territoryLabelLayer.add(sp);
       placed.push({ x: w.x, z: w.z });
     }
-    this.scene.add(this.labelLayer);
+    this.scene.add(this.nationLabelLayer, this.territoryLabelLayer);
+  }
+
+  // Sparse physical cartography appears only after zooming in: roads connect
+  // neighboring territory centers, while tiny inlaid hubs give each province a
+  // focal point. This replaces baked grain/glyph clutter with scale-aware detail.
+  private rebuildMapDetails(gs: GameState): void {
+    this.scene.remove(this.detailLayer);
+    this.detailLayer = new THREE.Group();
+    const vis = visibleNations(this.board, gs);
+    const owned = new Set(gs.owned);
+    const byId = new Map(this.board.territories.map(t => [t.id, t]));
+
+    const friendlyRoads: number[] = [];
+    const enemyRoads: number[] = [];
+    const roadEdges = new Set<string>();
+    for (const t of this.board.territories) {
+      if (!vis.has(t.nation)) continue;
+      const a = gridToWorld(t.cx, t.cy);
+      // One nearest in-country connection per territory is enough to suggest
+      // infrastructure. Drawing the full adjacency graph made a spiderweb.
+      const other = [...t.neighbors]
+        .map(nb => byId.get(nb))
+        .filter(q => q && q.nation === t.nation && vis.has(q.nation))
+        .sort((u, v) =>
+          Math.hypot(u!.cx - t.cx, u!.cy - t.cy) - Math.hypot(v!.cx - t.cx, v!.cy - t.cy)
+        )[0];
+      if (!other) continue;
+      const edge = t.id < other.id ? `${t.id}|${other.id}` : `${other.id}|${t.id}`;
+      if (roadEdges.has(edge)) continue;
+      roadEdges.add(edge);
+      const b = gridToWorld(other.cx, other.cy);
+      const target = owned.has(t.id) && owned.has(other.id) ? friendlyRoads : enemyRoads;
+      target.push(a.x, 0.09, a.z, b.x, 0.09, b.z);
+    }
+    const addRoads = (positions: number[], color: number, opacity: number) => {
+      if (positions.length === 0) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      this.detailLayer.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+        color, transparent: true, opacity, depthWrite: false
+      })));
+    };
+    addRoads(enemyRoads, 0x17252b, 0.22);
+    addRoads(friendlyRoads, 0x5f4715, 0.32);
+
+    for (const t of this.board.territories) {
+      if (!vis.has(t.nation)) continue;
+      const w = gridToWorld(t.cx, t.cy);
+      const isOwned = owned.has(t.id);
+      const hub = new THREE.Group();
+      const ringGeo = new THREE.RingGeometry(0.22, 0.34, 12);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ring = new THREE.Mesh(
+        ringGeo,
+        new THREE.MeshBasicMaterial({ color: isOwned ? 0x6a4c0e : 0xf1e6d0, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide })
+      );
+      ring.position.y = 0.12;
+      hub.add(ring);
+      if (isOwned) {
+        const block = new THREE.Mesh(
+          new THREE.BoxGeometry(0.32, 0.22, 0.32),
+          new THREE.MeshLambertMaterial({ color: 0x6f5114 })
+        );
+        block.position.y = 0.13;
+        hub.add(block);
+      }
+      hub.position.set(w.x, 0, w.z);
+      this.detailLayer.add(hub);
+    }
+    this.scene.add(this.detailLayer);
   }
 
   private boardIsVisible(vis: Set<number>, nation: number): boolean {
@@ -675,17 +744,24 @@ export class BoardView {
       });
       this.mapTex.needsUpdate = true;
       this.rebuildLabels(gs);
+      this.rebuildMapDetails(gs);
     }
-    // Labels are a map-altitude feature; up close the world speaks for itself.
-    this.labelLayer.visible = this.dist > 34;
-    if (this.labelLayer.visible) {
-      // Suppress labels that would sit under the top HUD band.
+    // Deliberate zoom ladder. Strategic altitude shows nations only; the
+    // territory chips and physical cartography arrive progressively, then text
+    // clears out again inside the close battle frame.
+    this.nationLabelLayer.visible = this.dist > 68;
+    this.territoryLabelLayer.visible = this.dist > 28 && this.dist < 78;
+    this.detailLayer.visible = this.dist > 22 && this.dist < 68;
+    const suppressUnderHud = (layer: THREE.Group, edgeLimit: number) => {
+      if (!layer.visible) return;
       const v = new THREE.Vector3();
-      for (const child of this.labelLayer.children) {
+      for (const child of layer.children) {
         v.copy(child.position).project(this.camera);
-        child.visible = v.y < 0.58;
+        child.visible = v.y < 0.58 && v.y > -0.72 && Math.abs(v.x) < edgeLimit;
       }
-    }
+    };
+    suppressUnderHud(this.nationLabelLayer, 0.82);
+    suppressUnderHud(this.territoryLabelLayer, 0.72);
 
     // Hot front: full seam + pieces. Other fronts: ambient skirmish glow.
     const hot = this.hotFront(gs);
@@ -693,7 +769,7 @@ export class BoardView {
     if (pts.length > 1) {
       const arr = new Float32Array(pts.length * 3);
       const ribbon = new Float32Array(pts.length * 2 * 3);
-      const glowW = 1.1 + clamp(this.dist / 38, 0, 3.4);
+      const glowW = 0.58 + clamp(this.dist / 82, 0, 1.45);
       for (let i = 0; i < pts.length; i++) {
         const w = gridToWorld(pts[i].x, pts[i].y);
         arr[i * 3] = w.x; arr[i * 3 + 1] = 0.25 + Math.sin(time * 3 + i) * 0.05; arr[i * 3 + 2] = w.z;
@@ -719,8 +795,8 @@ export class BoardView {
       this.seamGlowGeo.setIndex(idxArr);
       this.seamGlowGeo.attributes.position.needsUpdate = true;
       this.seam.visible = this.seamGlow.visible = true;
-      (this.seam.material as THREE.LineBasicMaterial).opacity = 0.65 + Math.sin(time * 2.5) * 0.2;
-      (this.seamGlow.material as THREE.MeshBasicMaterial).opacity = 0.3 + Math.sin(time * 2.1) * 0.12;
+      (this.seam.material as THREE.LineBasicMaterial).opacity = 0.7 + Math.sin(time * 2.5) * 0.12;
+      (this.seamGlow.material as THREE.MeshBasicMaterial).opacity = 0.2 + Math.sin(time * 2.1) * 0.07;
     } else {
       this.seam.visible = this.seamGlow.visible = false;
     }
@@ -728,17 +804,18 @@ export class BoardView {
     // Battle pieces along the hot seam.
     this.updatePieces(gs, pts, hot, dt);
 
-    // Skirmish flashes: hot front gets the show, every other front flickers too.
+    // Skirmish flashes are mid/close detail. Far altitude gets the clean seam
+    // and strategic chevrons without giant explosions sprayed over the board.
     const A = hot ? Math.max(hot.garrison, hot.strength * 0.15, 8) : 0;
     const P = armyPower(gs);
-    if (P > 0 && pts.length > 0) {
+    if (P > 0 && pts.length > 0 && this.dist < 82) {
       this.skirmishAcc += dt * Math.min(2 + Math.pow(Math.min(P, A), 0.22), 7);
       while (this.skirmishAcc >= 1) {
         this.skirmishAcc -= 1;
         const p = pts[Math.floor(Math.random() * pts.length)];
         const w = gridToWorld(p.x + (Math.random() - 0.5) * 6, p.y + (Math.random() - 0.5) * 6);
         this.tmp.set(w.x, 0.3, w.z);
-        this.effects.explode(this.tmp, this.dist > UNIT_VIS_DIST ? 1.4 + this.dist / 60 : 0.8);
+        this.effects.explode(this.tmp, this.dist > UNIT_VIS_DIST ? 0.72 : 0.82);
       }
       // Ambient war on the other fronts — the whole border is alive.
       for (const f of fronts) {
@@ -860,8 +937,8 @@ export class BoardView {
       );
       cone.rotation.y = ang;
       const pulse = 0.85 + Math.sin(time * 3.2) * 0.25;
-      cone.scale.setScalar(pulse * clamp(this.dist / 18, 1, 6.5));
-      (cone.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(time * 3.2) * 0.3;
+      cone.scale.setScalar(pulse * clamp(this.dist / 22, 1, 3.6));
+      (cone.material as THREE.MeshBasicMaterial).opacity = 0.48 + Math.sin(time * 3.2) * 0.18;
     }
 
     this.effects.update(dt);
@@ -874,10 +951,13 @@ export class BoardView {
 
     // Camera: idle eases home — to the battle when engaged, to the whole
     // continent when surveying from altitude (keeps the board centered).
-    if (time - this.lastTouch > 8) {
-      const home = this.dist > 95 ? { x: 0, z: 0 } : this.contestedCenter(gs);
-      this.focus.x += (home.x - this.focus.x) * Math.min(1, dt * 0.8);
-      this.focus.y += (home.z - this.focus.y) * Math.min(1, dt * 0.8);
+    const battleCenter = this.contestedCenter(gs);
+    const stranded = this.dist < 82 && Math.hypot(this.focus.x - battleCenter.x, this.focus.y - battleCenter.z) > this.dist * 0.95;
+    if (this.dist > 102 || stranded || time - this.lastTouch > 8) {
+      const home = this.dist > 95 ? this.strategicCenter(gs) : battleCenter;
+      const focusEase = this.dist > 102 || stranded ? 2.8 : 0.8;
+      this.focus.x += (home.x - this.focus.x) * Math.min(1, dt * focusEase);
+      this.focus.y += (home.z - this.focus.y) * Math.min(1, dt * focusEase);
     }
     this.clampFocus();
 
@@ -899,7 +979,7 @@ export class BoardView {
     const room = show ? clamp(pts.length / 55, 0.3, 1) : 0;
     const want: { friendly: boolean; line: number }[] = [];
     if (show && hot) {
-      const caps = [34, 12, 8, 12, 6, 3, 4, 0, 3];
+      const caps = [14, 5, 4, 5, 3, 2, 2, 0, 2];
       for (let i = 0; i < LINES.length; i++) {
         const n = Math.round(Math.min(caps[i], Math.sqrt(gs.lines[i].army) * (i === 0 ? 1.6 : 0.8)) * room);
         for (let k = 0; k < n; k++) want.push({ friendly: true, line: i });
@@ -907,9 +987,9 @@ export class BoardView {
       // Defenders scale with the remaining garrison. The close frame must
       // NEVER be a one-sided parade: hold-phase keeps enemy remnants in shot,
       // and a FINAL WAVE floods the field.
-      let en = Math.round(Math.min(56, 6.5 * Math.pow(Math.max(hot.garrison, 2), 0.24)) * room);
+      let en = Math.round(Math.min(20, 4.5 * Math.pow(Math.max(hot.garrison, 2), 0.22)) * room);
       if (hot.garrison <= 0) en = Math.max(en, Math.round(6 * room) + 3);
-      if (gs.wave) en = Math.max(en, Math.round(20 * room) + 6);
+      if (gs.wave) en = Math.max(en, Math.round(10 * room) + 4);
       for (let k = 0; k < en; k++) want.push({ friendly: false, line: k % ENEMY_MODELS.length });
     }
 
