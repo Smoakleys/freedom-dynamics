@@ -1,7 +1,7 @@
 // DOM UI: war HUD, production drawer, modals, toasts.
 
-import { LINES, randomCompanyName, AAR_EUPHEMISMS } from '../game/content';
-import { bulkCost, maxAffordable, buy, hire, batchDuration, batchRevenue, nextMilestone } from '../game/economy';
+import { LINES, RESEARCH, randomCompanyName, AAR_EUPHEMISMS } from '../game/content';
+import { bulkCost, maxAffordable, buy, hire, batchDuration, batchRevenue, nextMilestone, engineerCost, devPerSec, availableResearch, lineUnlocked } from '../game/economy';
 import { fmt, fmtMoney, fmtDuration } from '../game/format';
 import type { GameState, GameEvent } from '../game/state';
 import type { OfflineReport } from '../game/sim';
@@ -33,6 +33,10 @@ export class UI {
   private frontLabel!: HTMLElement;
   private toasts!: HTMLElement;
   board: Board | null = null;
+  // Wired by main: arm a map-tap action for strikes / per-line send-here.
+  onArmStrike: ((kind: string) => void) | null = null;
+  onArmSend: ((line: number) => void) | null = null;
+  armedLine = -1;   // line currently waiting for a map tap (visual state)
 
   constructor(private gs: GameState) {
     this.buildShell();
@@ -60,6 +64,7 @@ export class UI {
           <div id="front-bar"><div id="front-fill"></div></div>
           <div id="front-label">FRONT LINE</div>
         </div>
+        <div id="strike-bar"></div>
         <div id="chyron">
           <span class="tag">LIVE</span>
           <div id="chyron-track"><span id="chyron-text"></span></div>
@@ -75,6 +80,17 @@ export class UI {
             <button data-mode="100">x100</button>
             <button data-mode="max">MAX</button>
           </div>
+        </div>
+        <div id="rnd-panel">
+          <div class="rnd-row">
+            <div class="rnd-info">
+              <div class="rnd-title">ENGINEERING CORPS</div>
+              <div class="rnd-cap" id="rnd-cap">no staff</div>
+            </div>
+            <button class="btn btn-buy" id="rnd-buy">RECRUIT<small></small></button>
+          </div>
+          <button class="rnd-active" id="rnd-active">DIRECT R&amp;D →</button>
+          <div class="line-progress"><div class="line-progress-fill" id="rnd-fill"></div></div>
         </div>
         <div id="lines"></div>
       </div>
@@ -97,6 +113,57 @@ export class UI {
         this.refresh();
       });
     });
+
+    document.getElementById('rnd-buy')!.addEventListener('click', () => {
+      const cost = engineerCost(this.gs, 1);
+      if (this.gs.funds >= cost) {
+        this.gs.funds -= cost;
+        this.gs.engineers += 1;
+        if (this.gs.engineers === 1) this.toast('ENGINEERING CORPS founded — R&D capacity online');
+        this.refresh();
+      }
+    });
+    document.getElementById('rnd-active')!.addEventListener('click', () => this.researchModal());
+  }
+
+  private researchModal(): void {
+    const gs = this.gs;
+    const avail = availableResearch(gs);
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const dps = devPerSec(gs);
+    const rows = avail.map(r => {
+      const eta = dps > 0 ? fmtDuration((r.cost - (gs.activeResearch === r.id ? gs.researchProgress : 0)) / dps) : '∞';
+      const active = gs.activeResearch === r.id;
+      return `<button class="rnd-item ${active ? 'active' : ''}" data-id="${r.id}">
+        <span class="rnd-branch rnd-${r.branch}">${r.branch.toUpperCase()}</span>
+        <b>${r.name}</b>
+        <small>${r.desc}</small>
+        <em>${fmt(r.cost)} dev-pts · ETA ${eta}${active ? ' · IN PROGRESS' : ''}</em>
+      </button>`;
+    }).join('');
+    overlay.innerHTML = `
+      <div class="modal">
+        <h2>DIRECT R&amp;D</h2>
+        <div class="sub">ONE PROGRAM AT A TIME · UNUSED CAPACITY EVAPORATES</div>
+        ${rows || '<p style="color:var(--dim);font-size:13px">Everything is researched. The engineers are playing cards.</p>'}
+        <div class="row" style="margin-top:12px"><button class="btn-ghost" id="rnd-close">CLOSE</button></div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#rnd-close')!.addEventListener('click', () => overlay.remove());
+    overlay.querySelectorAll('.rnd-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = (el as HTMLElement).dataset.id!;
+        if (this.gs.activeResearch !== id) {
+          this.gs.activeResearch = id;
+          this.gs.researchProgress = 0;
+          this.toast(`R&D directed: ${RESEARCH.find(r => r.id === id)?.name}`);
+        }
+        overlay.remove();
+        this.refresh();
+      });
+    });
   }
 
   private buildRows(): void {
@@ -114,6 +181,7 @@ export class UI {
             <div class="line-desc">${L.desc}</div>
             <div class="line-stats"></div>
           </div>
+          <button class="line-flag" title="Send this line's output somewhere">⚑</button>
         </div>
         <div class="line-progress"><div class="line-progress-fill"></div></div>
         <div class="line-actions">
@@ -154,6 +222,20 @@ export class UI {
           this.refresh();
         }
       });
+      const flagBtn = row.querySelector('.line-flag') as HTMLButtonElement;
+      flagBtn.addEventListener('click', () => {
+        const ls = this.gs.lines[i];
+        if (ls.target) {
+          ls.target = null;
+          this.toast(`${L.unitPlural} return to auto-deployment`);
+          this.refresh();
+        } else {
+          this.armedLine = i;
+          this.toast(`Tap the map — ${L.unitPlural} will concentrate there`);
+          this.onArmSend?.(i);
+          this.refresh();
+        }
+      });
       this.rows.push(r);
     });
   }
@@ -167,8 +249,64 @@ export class UI {
   // Cheap-to-run refresh of button states/costs — call a few times per second.
   refresh(): void {
     const gs = this.gs;
+
+    // R&D panel.
+    const cap = document.getElementById('rnd-cap');
+    if (cap) {
+      const dps = devPerSec(gs);
+      cap.textContent = gs.engineers === 0 ? 'no staff — recruit engineers'
+        : `${fmt(gs.engineers)} staff · ${fmt(dps * 60)} dev-pts/min`;
+    }
+    const buyBtn = document.getElementById('rnd-buy') as HTMLButtonElement | null;
+    if (buyBtn) {
+      const cost = engineerCost(gs, 1);
+      buyBtn.disabled = gs.funds < cost;
+      (buyBtn.querySelector('small') as HTMLElement).textContent = `x1 · ${fmtMoney(cost)}`;
+    }
+    const activeEl = document.getElementById('rnd-active');
+    const fillEl = document.getElementById('rnd-fill');
+    if (activeEl && fillEl) {
+      if (gs.activeResearch) {
+        const def = RESEARCH.find(r => r.id === gs.activeResearch)!;
+        activeEl.textContent = `▶ ${def.name.toUpperCase()}`;
+        (fillEl as HTMLElement).style.width = `${Math.min(100, (gs.researchProgress / def.cost) * 100)}%`;
+      } else {
+        activeEl.textContent = gs.engineers > 0 ? 'DIRECT R&D → (capacity evaporating!)' : 'DIRECT R&D →';
+        (fillEl as HTMLElement).style.width = '0%';
+      }
+    }
+
+    // Strike bar.
+    const bar = document.getElementById('strike-bar');
+    if (bar) {
+      const caps2 = RESEARCH.filter(r => r.branch === 'capabilities' && gs.completedResearch.includes(r.id));
+      const html = caps2.map(r => {
+        const cd = gs.cooldowns[r.id] ?? 0;
+        const label = r.id === 'thunderclap' ? '✈' : r.id === 'skyfall' ? '☄' : '⛈';
+        return `<button class="strike-btn" data-kind="${r.id}" ${cd > 0 ? 'disabled' : ''}>${label}<small>${cd > 0 ? Math.ceil(cd) + 's' : 'READY'}</small></button>`;
+      }).join('');
+      if (bar.innerHTML !== html) {
+        bar.innerHTML = html;
+        bar.querySelectorAll('.strike-btn').forEach(el => {
+          el.addEventListener('click', () => {
+            const kind = (el as HTMLElement).dataset.kind!;
+            this.toast('Tap the map to designate the strike');
+            this.onArmStrike?.(kind);
+          });
+        });
+      }
+    }
+
     for (let i = 0; i < LINES.length; i++) {
       const L = LINES[i], ls = gs.lines[i], r = this.rows[i];
+      // Research-locked lines stay hidden until unlocked.
+      const unlocked = lineUnlocked(gs, i);
+      r.root.style.display = unlocked ? '' : 'none';
+      if (!unlocked) continue;
+      const flagBtn = r.root.querySelector('.line-flag') as HTMLButtonElement;
+      flagBtn.classList.toggle('set', !!ls.target);
+      flagBtn.classList.toggle('arming', this.armedLine === i);
+      flagBtn.style.display = ls.army > 0 || ls.target ? '' : 'none';
       const count = this.buyCount(i);
       const cost = bulkCost(i, ls.owned, count);
       const affordable = gs.funds >= cost;
@@ -243,6 +381,10 @@ export class UI {
         this.toast(`⚠ ${b.nations[e.nation].name.toUpperCase()} LAUNCHES ITS FINAL COUNTEROFFENSIVE`);
       } else if (e.type === 'nationFell' && b) {
         this.toast(`★★★ ${b.nations[e.nation].name.toUpperCase()} HAS FALLEN — NATION ACQUIRED`);
+      } else if (e.type === 'researchDone') {
+        const def = RESEARCH.find(r => r.id === e.id);
+        this.toast(`🔬 ${def?.name ?? e.id} COMPLETE — ${def?.desc ?? ''}`);
+        this.chyron.push(`${(def?.name ?? 'CLASSIFIED PROGRAM').toUpperCase()} DECLARED OPERATIONAL; BUDGET DECLARED CLASSIFIED`);
       }
     }
   }

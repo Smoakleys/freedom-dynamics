@@ -16,7 +16,8 @@ const UNIT_VIS_DIST = 70;        // camera distance where unit pieces appear
 const MIN_DIST = 11, MAX_DIST = 150;
 
 // Line index → model file. Missing files fall back to primitive pieces.
-const FRIENDLY_MODELS = ['Soldier', 'ScoutCar', 'Drone', 'LightTank', 'Howitzer', 'Jet', 'MissileLauncher', ''];
+// 'Mech' is kitbashed in code, not loaded from disk.
+const FRIENDLY_MODELS = ['Soldier', 'ScoutCar', 'Drone', 'LightTank', 'Howitzer', 'Jet', 'MissileLauncher', '', 'Mech'];
 const ENEMY_MODELS = ['Soldier', 'Jeep', 'Helicopter', 'SuperTank'];
 const GOLD = new THREE.Color(0xd8a531);
 const GOLD_DARK = new THREE.Color(0x8a6a1e);
@@ -69,6 +70,12 @@ export class BoardView {
   private orbitalAcc = 0;
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
+  // Map-tap targeting (strikes / SEND HERE) + per-line flags on the board.
+  private pendingTap: ((w: { x: number; z: number }) => void) | null = null;
+  private tapDownAt = { x: 0, y: 0 };
+  private flags = new Map<number, THREE.Group>();
+  private raycaster = new THREE.Raycaster();
+  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   constructor(private canvas: HTMLCanvasElement, gs: GameState, board: Board) {
     this.board = board;
@@ -154,9 +161,40 @@ export class BoardView {
     this.resize();
   }
 
+  // Kitbashed absurd-tier: PROJECT BIG STOMPY. Neutral grays so faction tint works.
+  private buildMech(): THREE.Object3D {
+    const g = new THREE.Group();
+    const mat = (c: number) => new THREE.MeshStandardMaterial({ color: c });
+    const add = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, ry = 0) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.position.set(x, y, z);
+      mesh.rotation.y = ry;
+      g.add(mesh);
+    };
+    const body = mat(0x9a9a9a), dark = mat(0x4a4a4a), light = mat(0xdddddd);
+    add(new THREE.BoxGeometry(0.5, 1.1, 0.5), dark, -0.45, 0.55, 0);      // legs
+    add(new THREE.BoxGeometry(0.5, 1.1, 0.5), dark, 0.45, 0.55, 0);
+    add(new THREE.BoxGeometry(0.7, 0.35, 0.8), dark, -0.45, 0.12, 0.1);   // feet
+    add(new THREE.BoxGeometry(0.7, 0.35, 0.8), dark, 0.45, 0.12, 0.1);
+    add(new THREE.BoxGeometry(1.7, 0.9, 1.1), body, 0, 1.5, 0);           // torso
+    add(new THREE.BoxGeometry(0.8, 0.5, 0.6), light, 0, 2.1, 0.25);       // cockpit
+    add(new THREE.CylinderGeometry(0.16, 0.16, 1.4, 6).rotateX(Math.PI / 2), dark, -0.95, 1.75, 0.4); // cannons
+    add(new THREE.CylinderGeometry(0.16, 0.16, 1.4, 6).rotateX(Math.PI / 2), dark, 0.95, 1.75, 0.4);
+    add(new THREE.BoxGeometry(0.5, 0.4, 0.9), body, -0.95, 1.45, 0);      // shoulder pods
+    add(new THREE.BoxGeometry(0.5, 0.4, 0.9), body, 0.95, 1.45, 0);
+    const wrap = new THREE.Group();
+    const box = new THREE.Box3().setFromObject(g);
+    const s = 2.8 / Math.max(box.max.y - box.min.y, 0.001);
+    g.scale.setScalar(s);
+    g.position.y = -box.min.y * s;
+    wrap.add(g);
+    return wrap;
+  }
+
   private loadModels(): void {
     const loader = new GLTFLoader();
-    const names = new Set([...FRIENDLY_MODELS, ...ENEMY_MODELS].filter(Boolean));
+    this.models.set('Mech', this.buildMech());
+    const names = new Set([...FRIENDLY_MODELS, ...ENEMY_MODELS].filter(Boolean).filter(n => n !== 'Mech'));
     // Per-model target sizes — aircraft stay small so they read as air cover.
     const SIZES: Record<string, number> = { Drone: 1.1, Jet: 1.35, Helicopter: 1.5, Soldier: 1.5 };
     for (const name of names) {
@@ -258,6 +296,7 @@ export class BoardView {
     el.style.touchAction = 'none';
     el.addEventListener('pointerdown', (e) => {
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      this.tapDownAt = { x: e.clientX, y: e.clientY };
       el.setPointerCapture(e.pointerId);
       this.lastTouch = this.time;
       if (this.pointers.size === 2) {
@@ -285,14 +324,94 @@ export class BoardView {
       }
       p.x = e.clientX; p.y = e.clientY;
     });
-    const up = (e: PointerEvent) => { this.pointers.delete(e.pointerId); this.pinchDist = 0; };
+    const up = (e: PointerEvent) => {
+      // A short, unmoved press with an armed action = a map tap.
+      if (this.pendingTap && this.pointers.size === 1) {
+        const moved = Math.hypot(e.clientX - this.tapDownAt.x, e.clientY - this.tapDownAt.y);
+        if (moved < 12) {
+          const w = this.pickWorld(e.clientX, e.clientY);
+          if (w) {
+            const cb = this.pendingTap;
+            this.pendingTap = null;
+            cb(w);
+          }
+        }
+      }
+      this.pointers.delete(e.pointerId);
+      this.pinchDist = 0;
+    };
     el.addEventListener('pointerup', up);
-    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointercancel', (e) => { this.pointers.delete(e.pointerId); this.pinchDist = 0; });
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.lastTouch = this.time;
       this.dist = clamp(this.dist * (1 + Math.sign(e.deltaY) * 0.12), MIN_DIST, MAX_DIST);
     }, { passive: false });
+  }
+
+  // Public: arm a one-shot map tap (strike targeting, SEND HERE placement).
+  armTap(cb: (w: { x: number; z: number }) => void): void {
+    this.pendingTap = cb;
+  }
+
+  pickWorld(clientX: number, clientY: number): { x: number; z: number } | null {
+    const rect = this.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const out = new THREE.Vector3();
+    if (this.raycaster.ray.intersectPlane(this.groundPlane, out)) {
+      return { x: out.x, z: out.z };
+    }
+    return null;
+  }
+
+  // Strike arrival fireworks at a world point.
+  strikeFx(kind: string, w: { x: number; z: number }): void {
+    if (kind === 'skyfall' || kind === 'weather') {
+      this.tmp.set(w.x, 0, w.z);
+      this.effects.orbitalStrike(this.tmp);
+    }
+    const n = kind === 'weather' ? 14 : kind === 'skyfall' ? 8 : 5;
+    for (let i = 0; i < n; i++) {
+      const r = kind === 'thunderclap' ? 6 : 12;
+      this.tmp.set(w.x + (Math.random() - 0.5) * r, 0.4, w.z + (Math.random() - 0.5) * r);
+      this.effects.explode(this.tmp, 1.4 + Math.random() * 1.2);
+    }
+  }
+
+  // SEND HERE flag markers, one per routed line.
+  private syncFlags(gs: GameState): void {
+    for (let i = 0; i < LINES.length; i++) {
+      const t = gs.lines[i].target;
+      const existing = this.flags.get(i);
+      if (!t) {
+        if (existing) { this.scene.remove(existing); this.flags.delete(i); }
+        continue;
+      }
+      if (!existing) {
+        const grp = new THREE.Group();
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.08, 0.08, 3.4, 5),
+          new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+        );
+        pole.position.y = 1.7;
+        const flag = new THREE.Mesh(
+          new THREE.BoxGeometry(1.6, 0.9, 0.06),
+          new THREE.MeshLambertMaterial({ color: 0xd8a531 })
+        );
+        flag.position.set(0.8, 2.9, 0);
+        grp.add(pole, flag);
+        this.scene.add(grp);
+        this.flags.set(i, grp);
+      }
+      const f = this.flags.get(i)!;
+      f.position.set(t.x, 0, t.z);
+      f.rotation.y = Math.sin(this.time * 1.5 + i) * 0.1;
+      f.scale.setScalar(clamp(this.dist / 30, 1, 2.4));
+    }
   }
 
   private clampFocus(): void {
@@ -438,6 +557,7 @@ export class BoardView {
       }
     }
 
+    this.syncFlags(gs);
     this.effects.update(dt);
 
     // Camera: idle eases home to the contested front.
@@ -467,7 +587,7 @@ export class BoardView {
     const room = show ? clamp(pts.length / 55, 0.3, 1) : 0;
     const want: { friendly: boolean; line: number }[] = [];
     if (show && hot) {
-      const caps = [34, 12, 8, 12, 6, 3, 4, 0];
+      const caps = [34, 12, 8, 12, 6, 3, 4, 0, 3];
       for (let i = 0; i < LINES.length; i++) {
         const n = Math.round(Math.min(caps[i], Math.sqrt(gs.lines[i].army) * (i === 0 ? 1.6 : 0.8)) * room);
         for (let k = 0; k < n; k++) want.push({ friendly: true, line: i });

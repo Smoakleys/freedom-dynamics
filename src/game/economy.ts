@@ -1,12 +1,60 @@
 // Economy math: costs, milestones, revenue, purchasing.
 
-import { LINES, MILESTONES, BALANCE } from './content';
+import { LINES, MILESTONES, BALANCE, ENGINEERS, RESEARCH } from './content';
 import type { GameState } from './state';
 
 export function speedMult(owned: number): number {
   let m = 1;
   for (const t of MILESTONES) if (owned >= t) m *= 2;
   return m;
+}
+
+export function milestonesReached(owned: number): number {
+  let n = 0;
+  for (const t of MILESTONES) if (owned >= t) n++;
+  return n;
+}
+
+export function hasResearch(gs: GameState, id: string): boolean {
+  return gs.completedResearch.includes(id);
+}
+
+export function lineUnlocked(gs: GameState, i: number): boolean {
+  const req = LINES[i].research;
+  return !req || hasResearch(gs, req);
+}
+
+// Effective battlefield power of ONE unit of line i — mass-scaling stat tiers:
+// milestones harden the product, research hardens everything.
+export function unitPower(gs: GameState, i: number): number {
+  let p = LINES[i].power * powerMult(gs);
+  p *= 1 + 0.15 * milestonesReached(gs.lines[i].owned);
+  if (hasResearch(gs, 'armor1')) p *= 1.2;
+  if (hasResearch(gs, 'armor2')) p *= 1.25;
+  return p;
+}
+
+export function researchSpeedMult(gs: GameState): number {
+  let m = 1;
+  if (hasResearch(gs, 'retool1')) m *= 1.25;
+  if (hasResearch(gs, 'retool2')) m *= 1.25;
+  return m;
+}
+
+// ————— Engineering Corps —————
+export function engineerCost(gs: GameState, count: number): number {
+  const g = ENGINEERS.growth;
+  return ENGINEERS.baseCost * Math.pow(g, gs.engineers) * (Math.pow(g, count) - 1) / (g - 1);
+}
+
+export function devPerSec(gs: GameState): number {
+  return gs.engineers * (ENGINEERS.devPerMin / 60) * speedMult(gs.engineers);
+}
+
+export function availableResearch(gs: GameState) {
+  return RESEARCH.filter(r =>
+    !gs.completedResearch.includes(r.id) &&
+    (!r.requires || gs.completedResearch.includes(r.requires)));
 }
 
 export function nextMilestone(owned: number): number | null {
@@ -46,7 +94,7 @@ export function batchRevenue(gs: GameState, i: number): number {
 }
 
 export function batchDuration(gs: GameState, i: number): number {
-  return LINES[i].batchTime / speedMult(gs.lines[i].owned);
+  return LINES[i].batchTime / (speedMult(gs.lines[i].owned) * researchSpeedMult(gs));
 }
 
 // Production influx in power/sec for a line, assuming it runs continuously.

@@ -2,7 +2,7 @@ import './ui/styles.css';
 import { newGame, type GameState } from './game/state';
 import { load, save } from './game/save';
 import { tick, fastForward, bindBoard } from './game/sim';
-import { frontInfos } from './game/war';
+import { frontInfos, applyStrike } from './game/war';
 import { generateBoard } from './render/board/gen';
 import { UI } from './ui/ui';
 import { BoardView } from './render/boardview';
@@ -21,6 +21,23 @@ const ui = new UI(gs);
 ui.board = board;
 ui.chyron.board = board;
 const battlefield = new BoardView(document.getElementById('battle-canvas') as HTMLCanvasElement, gs, board);
+
+// Quartermaster's hands: SEND HERE flags and callable strikes.
+ui.onArmSend = (line) => {
+  battlefield.armTap((w) => {
+    gs.lines[line].target = w;
+    ui.armedLine = -1;
+    ui.refresh();
+  });
+};
+ui.onArmStrike = (kind) => {
+  battlefield.armTap((w) => {
+    if (applyStrike(board, gs, kind, w.x, w.z)) {
+      battlefield.strikeFx(kind, w);
+    }
+    ui.refresh();
+  });
+};
 
 function hudInfo(): { title: string; sub: string; pct: number; label: string } {
   const fronts = frontInfos(board, gs);

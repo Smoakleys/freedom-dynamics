@@ -154,6 +154,61 @@ body {
   font-size: 12px; font-weight: 800; letter-spacing: 1px; padding: 10px; cursor: pointer;
 }
 
+/* ————— R&D panel ————— */
+#rnd-panel {
+  margin: 10px 12px 0; background: linear-gradient(180deg, #1a2438, #121a2b);
+  border: 1px solid #3d3050; border-radius: 10px; padding: 10px;
+}
+.rnd-row { display: flex; align-items: center; gap: 10px; }
+.rnd-info { flex: 1; min-width: 0; }
+.rnd-title { font-size: 12px; font-weight: 800; letter-spacing: 1.5px; color: #b8a1e8; }
+.rnd-cap { font-size: 10px; color: var(--dim); margin-top: 2px; }
+#rnd-buy { flex: 0 0 auto; min-width: 110px; }
+.rnd-active {
+  width: 100%; margin-top: 8px; background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 8px; color: var(--text); font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+  padding: 8px; cursor: pointer; text-align: left;
+}
+#rnd-panel .line-progress { margin-top: 6px; }
+#rnd-panel .line-progress-fill { background: #b8a1e8; }
+.rnd-item {
+  display: block; width: 100%; text-align: left; background: var(--panel2);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-top: 8px;
+  color: var(--text); cursor: pointer;
+}
+.rnd-item.active { border-color: #b8a1e8; }
+.rnd-item b { display: block; font-size: 13px; }
+.rnd-item small { display: block; font-size: 10.5px; color: var(--dim); margin-top: 2px; line-height: 1.3; }
+.rnd-item em { display: block; font-size: 10px; color: #b8a1e8; font-style: normal; margin-top: 4px; }
+.rnd-branch {
+  float: right; font-size: 8.5px; font-weight: 800; letter-spacing: 1px;
+  padding: 2px 6px; border-radius: 3px; background: var(--line); color: var(--dim);
+}
+.rnd-units { background: #234a2e; color: #a5e0b0; }
+.rnd-capabilities { background: #4a2e23; color: #e0b0a5; }
+
+/* ————— Strike bar ————— */
+#strike-bar {
+  position: absolute; right: 10px; bottom: 34px; display: flex; flex-direction: column; gap: 8px;
+}
+.strike-btn {
+  width: 46px; height: 46px; border-radius: 10px; border: 1px solid var(--gold);
+  background: rgba(18, 26, 43, 0.92); color: var(--gold2); font-size: 18px;
+  cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.strike-btn small { font-size: 7.5px; letter-spacing: 0.5px; color: var(--dim); }
+.strike-btn:disabled { border-color: var(--line); color: #5a6478; }
+
+/* ————— Line flags (SEND HERE) ————— */
+.line-flag {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px;
+  background: var(--panel2); border: 1px solid var(--line); color: #5a6478;
+  font-size: 14px; cursor: pointer;
+}
+.line-flag.set { color: var(--gold2); border-color: var(--gold); }
+.line-flag.arming { animation: flag-pulse 0.8s infinite alternate; color: var(--gold2); }
+@keyframes flag-pulse { from { border-color: var(--line); } to { border-color: var(--gold); } }
+
 /* ————— Line rows ————— */
 .line-row {
   margin: 10px 12px 0; background: var(--panel); border: 1px solid var(--line);

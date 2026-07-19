@@ -9,6 +9,7 @@ export interface LineState {
   running: boolean;      // a manual batch is in flight
   army: number;          // fielded units currently surviving at the fronts
   delivered: number;     // lifetime units delivered
+  target: { x: number; z: number } | null;  // SEND HERE destination (world coords)
 }
 
 export interface Stats {
@@ -38,6 +39,11 @@ export interface GameState {
   wave: WaveState | null;
   rentPerSec: number;
   territoriesWonTotal: number;
+  engineers: number;
+  activeResearch: string | null;
+  researchProgress: number;
+  completedResearch: string[];
+  cooldowns: Record<string, number>;
   lines: LineState[];
   lastSeen: number;
   founded: boolean;
@@ -45,14 +51,14 @@ export interface GameState {
 }
 
 export function newLineState(): LineState {
-  return { owned: 0, hired: false, progress: 0, running: false, army: 0, delivered: 0 };
+  return { owned: 0, hired: false, progress: 0, running: false, army: 0, delivered: 0, target: null };
 }
 
 export function newGame(): GameState {
   const lines = LINES.map(() => newLineState());
   lines[0].owned = 1; // the company begins with one proud refurbished-rifle line
   return {
-    version: 3,
+    version: 4,
     company: '',
     funds: 0,
     lifetimeEarnings: 0,
@@ -66,6 +72,11 @@ export function newGame(): GameState {
     wave: null,
     rentPerSec: 0,
     territoriesWonTotal: 0,
+    engineers: 0,
+    activeResearch: null,
+    researchProgress: 0,
+    completedResearch: [],
+    cooldowns: {},
     lines,
     lastSeen: Date.now(),
     founded: false,
@@ -80,4 +91,5 @@ export type GameEvent =
   | { type: 'waveStarted'; nation: number }
   | { type: 'nationFell'; nation: number }
   | { type: 'milestone'; line: number; threshold: number }
+  | { type: 'researchDone'; id: string }
   | { type: 'firstUnit'; line: number };

@@ -13,6 +13,7 @@ export interface LineDef {
   revenue: number;         // $ per unit delivered
   power: number;           // battlefield power per unit
   hire: HireDef;
+  research?: string;       // locked until this research completes
 }
 
 export interface HireDef {
@@ -21,6 +22,47 @@ export interface HireDef {
   bio: string;
   cost: number;
 }
+
+// ————— Engineering Corps + R&D —————
+// Engineers generate R&D capacity per minute (use-it-or-lose-it). One active
+// research at a time; all capacity flows into it.
+
+export const ENGINEERS = {
+  baseCost: 2500,
+  growth: 1.13,
+  devPerMin: 1          // per engineer, before milestone doublings
+};
+
+export type ResearchBranch = 'units' | 'upgrades' | 'capabilities';
+
+export interface ResearchDef {
+  id: string;
+  name: string;
+  desc: string;
+  branch: ResearchBranch;
+  cost: number;           // dev-points
+  requires?: string;
+  cooldown?: number;      // capabilities: seconds between uses
+}
+
+export const RESEARCH: ResearchDef[] = [
+  { id: 'armor1', name: 'Composite Everything', branch: 'upgrades', cost: 60,
+    desc: '+20% firepower on all hardware. The armor is now also armor.' },
+  { id: 'retool1', name: 'Rapid Retooling', branch: 'upgrades', cost: 140,
+    desc: 'All production lines run 25% faster. The union was not consulted.' },
+  { id: 'thunderclap', name: 'Project THUNDERCLAP', branch: 'capabilities', cost: 260, cooldown: 90,
+    desc: 'Callable airstrike. Tap the map; freedom arrives at Mach 1.4.' },
+  { id: 'armor2', name: 'Compositer Everything', branch: 'upgrades', cost: 900, requires: 'armor1',
+    desc: '+25% more firepower. The armor\'s armor has armor.' },
+  { id: 'mech', name: 'Project BIG STOMPY', branch: 'units', cost: 1600,
+    desc: 'Unlocks the Mech Assembly Plant. Legal insists it be called a "bipedal logistics platform".' },
+  { id: 'retool2', name: 'Panic Retooling', branch: 'upgrades', cost: 2400, requires: 'retool1',
+    desc: 'Lines 25% faster again. The machines are frightened of you now.' },
+  { id: 'skyfall', name: 'Project SKYFALL', branch: 'capabilities', cost: 4200, requires: 'thunderclap', cooldown: 300,
+    desc: 'Callable orbital lance. Tap the map; the sky files an invoice.' },
+  { id: 'weather', name: 'Project LIGHT DRIZZLE', branch: 'capabilities', cost: 15000, requires: 'skyfall', cooldown: 600,
+    desc: 'Weather control. It rains ordnance on EVERY front simultaneously. Forecast: freedom.' }
+];
 
 export const LINES: LineDef[] = [
   {
@@ -117,6 +159,19 @@ export const LINES: LineDef[] = [
       name: '██████', title: 'From The Agency',
       bio: "You didn't hire them. They arrived. HR has agreed not to ask.",
       cost: 45_000_000_000
+    }
+  },
+  {
+    id: 'mech',
+    name: 'Mech Assembly Plant',
+    desc: 'Bipedal logistics platform (armed). OSHA has stopped calling back.',
+    unitName: 'Combat Mech', unitPlural: 'Combat Mechs',
+    baseCost: 2_149_908_480, growth: 1.09, batchTime: 3072, revenue: 1_074_954_240, power: 102_400,
+    research: 'mech',
+    hire: {
+      name: 'STOMP-DAD 9000', title: 'Mech Foreman (Also a Mech)',
+      bio: 'Built by the first mech. Nobody remembers building the first mech.',
+      cost: 540_000_000_000
     }
   }
 ];
