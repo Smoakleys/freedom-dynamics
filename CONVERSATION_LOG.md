@@ -142,3 +142,9 @@
   the primary agent documented the required harsh checklist directly rather
   than misrepresenting an independent reviewer. Deployment began after this
   checkpoint.
+- Bold Board zoom ladder shipped. Source commit `637adec` is on `main`; deploy
+  commit `0c20df1` is on `gh-pages`. A cache-busted request to the live GitHub
+  Pages URL confirmed `assets/index-CJlqyRRo.js`, matching the final local
+  production build. The next visual work should respond to Bridger's direct
+  reaction to the live far/mid/close ladder, with hatch strength and close-unit
+  size already recorded as the two intentional taste-level tuning knobs.

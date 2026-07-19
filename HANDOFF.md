@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-19 ~16:45 (Bold Board zoom ladder passes final gate; deploying)*
+*Last update: 2026-07-19 ~16:50 (Bold Board zoom ladder deployed and live-verified)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -132,6 +132,12 @@ questions; NO AI mood images — code renders only.
   could not be invoked under the current no-delegation execution policy, so the
   primary agent performed and documented the same harsh three-frame checklist
   instead of falsely claiming a fork verdict. Source + gh-pages deploy is next.
+- 2026-07-19 ~16:50 DEPLOYED: source commit `637adec` pushed to `main`;
+  production commit `0c20df1` force-pushed to `gh-pages`. Live index at
+  `https://smoakleys.github.io/freedom-dynamics/` was cache-busted and verified
+  to reference the expected new bundle `assets/index-CJlqyRRo.js`. This visual
+  overhaul checkpoint is complete and live. Resume from direct Bridger visual
+  feedback; do not reopen the discarded broad style branches unless requested.
 - Warm signal so far: he picked "A — Vector-crisp" (flat fills, uniform ~2px
   ink borders, zero texture) over soft-premium and flat-plates, but said
   "nothing is stable".
