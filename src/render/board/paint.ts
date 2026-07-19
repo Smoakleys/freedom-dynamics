@@ -85,9 +85,12 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
     if (!c) {
       // Enemy land uses its NATION's palette family so countries read as
       // distinct blocs; your empire is always gold.
+      // Contested keeps its NATION'S cold hue (slightly lifted) — the gold
+      // hatch marks the fight; a warm fill would smear into the empire.
+      const nc = nationOf(t).color;
       c = o === 'you' ? terrColor(GOLD_BASE, l)
-        : o === 'contested' ? terrColor(CONTESTED, l)
-        : o === 'foe' ? terrColor(nationOf(t).color, l)
+        : o === 'contested' ? terrColor({ h: nc.h, s: nc.s + 8, l: nc.l + 7 }, l)
+        : o === 'foe' ? terrColor(nc, l)
         : fogRGB;
       colorCache.set(key, c);
     }
@@ -238,10 +241,10 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
       const bx = (t.cx + (r() - 0.5) * 30) * SX;
       const by = (t.cy + (r() - 0.5) * 30) * SY;
       if (labelAt(board, bx / SX, by / SY) !== t.id) continue;
-      for (let b = 0; b < 3 + Math.floor(r() * 3); b++) {
-        const w2 = (2 + r() * 3) * K, h2 = (2 + r() * 4) * K;
-        ctx.fillStyle = r() > 0.4 ? 'rgba(96,70,22,0.55)' : 'rgba(60,44,14,0.55)';
-        ctx.fillRect(bx + (r() - 0.5) * 14 * K, by + (r() - 0.5) * 10 * K, w2, h2);
+      for (let b = 0; b < 4 + Math.floor(r() * 3); b++) {
+        const w2 = (4 + r() * 6) * K, h2 = (4 + r() * 8) * K;
+        ctx.fillStyle = r() > 0.4 ? 'rgba(96,70,22,0.8)' : 'rgba(56,40,12,0.8)';
+        ctx.fillRect(bx + (r() - 0.5) * 20 * K, by + (r() - 0.5) * 14 * K, w2, h2);
       }
     }
   }

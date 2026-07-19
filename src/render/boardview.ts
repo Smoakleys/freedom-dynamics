@@ -454,10 +454,15 @@ export class BoardView {
       const isOwned = owned.has(t.id);
       const isHome = t.nation === this.board.homeNation;
       const base = isOwned && !isHome ? capturedName(gs.company || 'Freedom', t.id) : t.name;
-      const short = base.length > 18 ? base.split(' ').slice(0, 2).join(' ') : base;
+      // Truncate on WORD boundaries — "DUST WAST" mid-word reads as a bug.
+      let short = base;
+      while (short.length > 17 && short.includes(' ')) {
+        short = short.split(' ').slice(0, -1).join(' ');
+      }
       const sp = mkText(isC ? `⚔ ${short.toUpperCase()}` : short.toUpperCase(), {
         size: isC ? 3.6 : 2.8,
-        color: isC ? 'rgba(255,214,132,0.98)' : isOwned ? 'rgba(64,46,12,0.95)' : 'rgba(226,232,238,0.85)'
+        color: isC ? 'rgba(255,214,132,0.98)' : isOwned ? 'rgba(38,26,4,1)' : 'rgba(226,232,238,0.85)',
+        weight: isOwned ? 900 : 700
       });
       sp.position.set(w.x, 1.6, w.z);
       this.labelLayer.add(sp);
@@ -562,7 +567,6 @@ export class BoardView {
     const hc = this.ensureHomeCenter();
     for (const f of fronts) {
       if (hot && f.tid === hot.tid) continue;      // hot front has the full battle
-      if (f.garrison <= 0 && !gs.wave) continue;
       live.add(f.tid);
       if (this.pickets.has(f.tid)) continue;
       const t = this.board.territories.find(q => q.id === f.tid);
@@ -576,7 +580,7 @@ export class BoardView {
       for (let i = 0; i < en; i++) {
         const m = this.tinted(ENEMY_MODELS[i % ENEMY_MODELS.length], false);
         m.position.set((i % 3 - 1) * 3.2 + (i * 1.7) % 2, 0, Math.floor(i / 3) * 3 + ((i * 2.3) % 2));
-        m.rotation.y = Math.atan2(dx, dz);
+        m.rotation.y = Math.atan2(dx, dz) + ((i * 13) % 7 - 3) * 0.09;
         grp.add(m);
       }
       const fr = clamp(Math.round(en * 0.7), 2, 6);
@@ -634,6 +638,14 @@ export class BoardView {
     }
     // Labels are a map-altitude feature; up close the world speaks for itself.
     this.labelLayer.visible = this.dist > 34;
+    if (this.labelLayer.visible) {
+      // Suppress labels that would sit under the top HUD band.
+      const v = new THREE.Vector3();
+      for (const child of this.labelLayer.children) {
+        v.copy(child.position).project(this.camera);
+        child.visible = v.y < 0.58;
+      }
+    }
 
     // Hot front: full seam + pieces. Other fronts: ambient skirmish glow.
     const hot = this.hotFront(gs);
@@ -769,16 +781,27 @@ export class BoardView {
       if (!t) continue;
       const w = gridToWorld(t.cx, t.cy);
       if (!cone) {
+        // Flat arrow lying on the map — from top-down a cone has no direction.
+        const shape = new THREE.Shape();
+        shape.moveTo(0, 1.8);
+        shape.lineTo(1.2, 0);
+        shape.lineTo(0.45, 0);
+        shape.lineTo(0.45, -1.6);
+        shape.lineTo(-0.45, -1.6);
+        shape.lineTo(-0.45, 0);
+        shape.lineTo(-1.2, 0);
+        shape.closePath();
+        const geo = new THREE.ShapeGeometry(shape);
+        geo.rotateX(-Math.PI / 2);
         cone = new THREE.Mesh(
-          new THREE.ConeGeometry(1.6, 3.6, 4),
-          new THREE.MeshBasicMaterial({ color: 0xffd25e, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false })
+          geo,
+          new THREE.MeshBasicMaterial({ color: 0xffd25e, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
         );
-        cone.rotation.x = Math.PI / 2;
         this.scene.add(cone);
         this.chevrons.set(tid, cone);
       }
       const ang = Math.atan2(w.x - hc.x, w.z - hc.z);
-      cone.position.set(w.x, 2.2, w.z);
+      cone.position.set(w.x, 1.2, w.z);
       cone.rotation.y = ang;
       const pulse = 0.85 + Math.sin(time * 3.2) * 0.25;
       // Big enough to read from orbit — momentum is a strategic-view feature.
@@ -820,9 +843,11 @@ export class BoardView {
         const n = Math.round(Math.min(caps[i], Math.sqrt(gs.lines[i].army) * (i === 0 ? 1.6 : 0.8)) * room);
         for (let k = 0; k < n; k++) want.push({ friendly: true, line: i });
       }
-      // Defenders scale with the remaining garrison; a breaking garrison thins
-      // out — but a FINAL WAVE floods the field (the climax must be visible).
+      // Defenders scale with the remaining garrison. The close frame must
+      // NEVER be a one-sided parade: hold-phase keeps enemy remnants in shot,
+      // and a FINAL WAVE floods the field.
       let en = Math.round(Math.min(48, 5 * Math.pow(Math.max(hot.garrison, 2), 0.24)) * room);
+      if (hot.garrison <= 0) en = Math.max(en, Math.round(6 * room) + 3);
       if (gs.wave) en = Math.max(en, Math.round(20 * room) + 6);
       for (let k = 0; k < en; k++) want.push({ friendly: false, line: k % ENEMY_MODELS.length });
     }

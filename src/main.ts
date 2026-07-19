@@ -34,6 +34,16 @@ ui.onArmStrike = (kind) => {
   battlefield.armTap((w) => {
     if (applyStrike(board, gs, kind, w.x, w.z)) {
       battlefield.strikeFx(kind, w);
+      const names: Record<string, string> = {
+        thunderclap: 'THUNDERCLAP airstrike delivered', skyfall: 'SKYFALL orbital lance delivered',
+        weather: 'LIGHT DRIZZLE commenced on all fronts'
+      };
+      ui.toast(`💥 ${names[kind] ?? 'Strike delivered'} — invoice attached`);
+      ui.chyron.push(kind === 'weather'
+        ? 'IT IS RAINING ORDNANCE EVERYWHERE; UMBRELLA STOCKS SOAR'
+        : 'PRECISION STRIKE "EXTREMELY PRECISE", SAYS MANUFACTURER OF STRIKE');
+    } else {
+      ui.toast('No valid target in range — the Adversary regrets nothing');
     }
     ui.refresh();
   });
