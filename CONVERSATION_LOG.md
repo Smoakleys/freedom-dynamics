@@ -1,0 +1,91 @@
+# CONVERSATION LOG — Freedom Dynamics
+*Append-only. Content, not analysis. Every conversation adds entries.*
+
+## 2026-07-18 — Founding grill & v0.1
+- Bridger: wants AdVenture-Capitalist-style defense-contractor idle game,
+  absurdist parody humor, battle you watch but don't control (functional ref:
+  newhedge.io/bitcoin/battlefield), playable on iPhone. "Grill me and plan go!"
+- Grill results: day-ratchet battle (never lose); production lines ARE unit
+  types; enemy = vague rebranded "The Adversary"; Fiscal Year prestige →
+  Lobbying Power; full offline sim + After-Action Report; tap→absurd-hire;
+  chyron in v1; 8 lines/~60 days; 3D from day one after Bridger rejected art
+  options pitched without reading his reference ("did you even look at the
+  example I gave?"); Risk-style visual NOT yet in picture; title vote:
+  Freedom Dynamics. PLAN.md written.
+- "Go. Failure isn't an option, deliver my game." → Built v0.1 same session:
+  Vite+TS+three.js, economy, day-battle sim, diorama, chyron, AAR, PWA;
+  deployed to GitHub Pages (created repo Smoakleys/freedom-dynamics via API
+  token from git credential store; no gh CLI). Fixed day-one blocker (new
+  companies start with 1 rifle line). LIVE + pinged with screenshots.
+
+## 2026-07-18 (later) — Visual rejections & The Board
+- Bridger: "not a fan of the visuals or control of how we look at the screen…
+  be CREATIVE!!!!" → 3 research agents (battle-viz styles, war aesthetics,
+  camera design). Key findings: locked cameras win; portrait wants vertical
+  war axis; newhedge's spectacle ladder.
+- Pitched 6 directions via artifact → Bridger: "we can be more creative than
+  these. I want to see territories being taken at a high level but also be
+  able to zoom in anywhere."
+- Theater concept (Google-Earth-of-war) pitched → he cut "days" → territory
+  expansion + fog reveal. Built v0.2 (terrain strip, sectors). He rejected
+  look: "You're sticking to our reference too hard. That was a concept of
+  functionality not a visual reference."
+- New mood frames (night earth, painterly) → "not at all right. Mix our ideas
+  with something like the game of Risk." → Risk-board concept; PIL true-to-
+  engine board mock APPROVED in concept, implementation corrected: real unit
+  assets (sonnet agents found CC0/CC-BY packs: Zsky vehicles, Quaternius
+  soldier, etc.), map must look designed-not-procedural, close camera more
+  top-down. Built v0.3 The Board (canvas cartography ground, GLB pieces
+  tinted gold/slate, pinch camera). Debugged: material-array render bug,
+  noise-wrap map seams, camera targeting. Deployed.
+- "These seem dull" → anti-dull pass (richer cartography, tone mapping,
+  shadows, seam glow). Then: "let's talk about what the things we are
+  training are" → mechanics discussions.
+
+## 2026-07-18/19 — Identity grills
+- Facilitated fork-Fable grill #1 (7 questions): product = THE SIM ITSELF;
+  living theater (salients, counterattacks as events); quartermaster hands
+  (rates, routing, stockpiles); units = disposable flow; comedy = seasoning;
+  late arsenal visibly absurd (mechs/moon lasers); Total-War-energy visuals
+  (not its style). NORTH STAR brief written atop PLAN.md.
+- Bridger: "Don't pitch it to me, be way more specific and I'll say yes or no
+  or bad question." → Rapid yes/no spec grill: whole border live; mass units
+  visible (aggregate sim under hood); "The hell is supply? Cut this entirely";
+  counterattack = one big non-replenishing wave at nation fall; capture =
+  physical overrun + 60s hold; per-LINE "send here" routing; engineers → R&D
+  capacity/min use-it-or-lose-it, one research at a time; map of nations, NOT
+  linear ("It's just a map of nations come on"); prestige = placeholder
+  ("fiscal year doesn't fit the game's identity"). LIVING WAR SPEC locked.
+- Caught ending a turn with "construction starts now" + no work: Bridger had
+  a permanent rule added to ~/.claude/CLAUDE.md (never announce unstarted
+  work). Then v0.4a actually built same turn.
+
+## 2026-07-19 — Marathon (6h directive)
+- Bridger: "go… have a fable agent review things as needed, review visuals
+  often, be critical, implement its feedback… DEVELOP A TESTING AGENT OR
+  SUITE… work until [I return in 6 hours]."
+- Shipped: v0.4a (nations continent, multi-front sim, overrun capture, rent,
+  waves) → v0.4b (R&D, strikes, routing, stat tiers, mech) → test suite
+  (18 vitest + 16-assert Playwright E2E, all green; balance harness caught
+  1-hour continent collapse → garrisons ×11/ring) → five fork-review rounds
+  implemented (sprite labels, cold nations, pickets, streaming reinforcements,
+  flyer shadows, momentum arrows, conquest waves, convoys, branding, wave
+  red-alert + camera cut, arsenal pickets) → round 5 verdict: SHIP IT, all
+  three zooms pass App-Store bar. Checkpoint screenshots pinged.
+- Bridger live feedback: mobile zoom hard → Safari pinch-hijack killed,
+  pinch exponent, two-finger pan, double-tap zoom. Deployed.
+- Bridger: units must NOT scale with zoom (invisible fully zoomed out); true
+  fog (only neighboring nations visible); "blocky art map isn't going to do
+  it — smooth feeling and simple"; wants standing visual-review system +
+  fable interrogator asking enough questions. → Fixed-scale units + open-sea
+  fog deployed; docs/VISUAL_REVIEW.md gate created; visual-overhaul
+  interrogator spawned.
+- Visual search so far: 3-style mock (vector-crisp / soft-premium / flat
+  plates) → Bridger picked "A — Vector-crisp". Then: "Nothing is stable —
+  small concept maps, a couple versions, make sure they're different, start
+  broad, hotter/colder through layers of best-of-these picking." →
+  Interrogator produced ROUND 1 SPEC (6 divergent directions: Ink Atlas,
+  Bold Board, Midnight Ops, Pastel Provinces, Duotone Field, Carved Inlay —
+  full spec preserved in HANDOFF.md). RENDERING PENDING.
+- Bridger: create HANDOFF.md + CONVERSATION_LOG.md, update every conversation
+  (this entry). Session usage at limit; files written for seamless resume.
