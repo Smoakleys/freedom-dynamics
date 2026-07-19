@@ -1,7 +1,8 @@
 // News chyron: scrolling ticker mixing static headlines with reactive ones.
 
-import { CHYRON_STATIC, CHYRON_REACTIVE, adversaryName, LINES, sectorName, capturedName } from '../game/content';
+import { CHYRON_STATIC, CHYRON_REACTIVE, LINES, capturedName } from '../game/content';
 import { fmt } from '../game/format';
+import type { Board } from '../render/board/gen';
 import type { GameState, GameEvent } from '../game/state';
 
 export class Chyron {
@@ -11,6 +12,7 @@ export class Chyron {
   private track: HTMLElement;
   private x = 0;
   private textWidth = 0;
+  board: Board | null = null;
 
   constructor() {
     this.track = document.getElementById('chyron-track')!;
@@ -27,7 +29,6 @@ export class Chyron {
   }
 
   private next(): void {
-    // Show three headlines per scroll pass so the strip never feels empty.
     const items = [this.pull(), this.pull(), this.pull()];
     this.el.textContent = items.join('   •••   ');
     this.x = this.track.clientWidth + 10;
@@ -40,20 +41,23 @@ export class Chyron {
   }
 
   onEvents(gs: GameState, events: GameEvent[]): void {
+    const b = this.board;
     for (const e of events) {
-      if (e.type === 'sectorWon') {
-        this.push(pick(CHYRON_REACTIVE.sectorWon)
-          .replace('{SECTOR}', sectorName(e.sector, gs.fiscalYear))
-          .replace('{RENAMED}', capturedName(gs.company, e.sector))
-          .replace('{ADVERSARY}', adversaryName(e.sector)));
-      } else if (e.type === 'newSector') {
-        this.push(pick(CHYRON_REACTIVE.newSector)
-          .replace(/\{SECTOR\}/g, sectorName(e.sector, gs.fiscalYear))
-          .replace('{ADVERSARY}', adversaryName(e.sector)));
+      if (e.type === 'territoryWon' && b) {
+        const t = b.territories.find(q => q.id === e.tid);
+        if (!t) continue;
+        this.push(pick(CHYRON_REACTIVE.territoryWon)
+          .replace('{SECTOR}', t.name)
+          .replace('{RENAMED}', capturedName(gs.company, e.tid))
+          .replace('{ADVERSARY}', b.nations[t.nation].adversaryName));
+      } else if (e.type === 'waveStarted' && b) {
+        this.push(pick(CHYRON_REACTIVE.waveStarted).replace(/\{NATION\}/g, b.nations[e.nation].name));
+      } else if (e.type === 'nationFell' && b) {
+        this.push(pick(CHYRON_REACTIVE.nationFell).replace(/\{NATION\}/g, b.nations[e.nation].name));
       } else if (e.type === 'milestone') {
         this.push(pick(CHYRON_REACTIVE.milestone).replace('{LINE}', LINES[e.line].name));
       } else if (e.type === 'firstUnit') {
-        this.push(`FIRST ${LINES[e.line].unitPlural} REACH FRONT; CROWD GOES MILD`);
+        this.push(`FIRST ${LINES[e.line].unitPlural} REACH THE FRONT; CROWD GOES MILD`);
       }
     }
   }

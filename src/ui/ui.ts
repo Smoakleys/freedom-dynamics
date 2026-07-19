@@ -1,10 +1,11 @@
 // DOM UI: war HUD, production drawer, modals, toasts.
 
-import { LINES, BALANCE, adversaryName, randomCompanyName, sectorName, AAR_EUPHEMISMS, AAR_COMMENDATIONS } from '../game/content';
-import { bulkCost, maxAffordable, buy, hire, batchDuration, batchRevenue, lobbyingGain, nextMilestone } from '../game/economy';
+import { LINES, randomCompanyName, AAR_EUPHEMISMS } from '../game/content';
+import { bulkCost, maxAffordable, buy, hire, batchDuration, batchRevenue, nextMilestone } from '../game/economy';
 import { fmt, fmtMoney, fmtDuration } from '../game/format';
-import { newGame, type GameState, type GameEvent } from '../game/state';
+import type { GameState, GameEvent } from '../game/state';
 import type { OfflineReport } from '../game/sim';
+import type { Board } from '../render/board/gen';
 import { Chyron } from './chyron';
 
 const ICONS = ['🪖', '🛻', '🛸', '🎯', '💥', '✈️', '🚀', '🛰️'];
@@ -30,9 +31,8 @@ export class UI {
   private advEl!: HTMLElement;
   private frontFill!: HTMLElement;
   private frontLabel!: HTMLElement;
-  private prestigeBtn!: HTMLButtonElement;
   private toasts!: HTMLElement;
-  onPrestige: (() => void) | null = null;
+  board: Board | null = null;
 
   constructor(private gs: GameState) {
     this.buildShell();
@@ -53,7 +53,7 @@ export class UI {
           </div>
           <div class="hud-right">
             <div class="funds" id="hud-funds">$0</div>
-            <div class="funds-label">OPERATING FUNDS</div>
+            <div class="funds-label" id="hud-funds-label">OPERATING FUNDS</div>
           </div>
         </div>
         <div id="front-bar-wrap">
@@ -76,7 +76,6 @@ export class UI {
             <button data-mode="max">MAX</button>
           </div>
         </div>
-        <button id="prestige-btn"></button>
         <div id="lines"></div>
       </div>
       <div id="toasts"></div>
@@ -87,7 +86,6 @@ export class UI {
     this.frontFill = document.getElementById('front-fill')!;
     this.frontLabel = document.getElementById('front-label')!;
     this.toasts = document.getElementById('toasts')!;
-    this.prestigeBtn = document.getElementById('prestige-btn') as HTMLButtonElement;
     document.getElementById('company-name')!.textContent = this.gs.company || 'UNINCORPORATED';
 
     document.querySelectorAll('#buy-mult button').forEach(b => {
@@ -99,8 +97,6 @@ export class UI {
         this.refresh();
       });
     });
-
-    this.prestigeBtn.addEventListener('click', () => this.confirmPrestige());
   }
 
   private buildRows(): void {
@@ -206,24 +202,21 @@ export class UI {
       }
     }
 
-    // Prestige button.
-    const gain = lobbyingGain(gs);
-    if (gs.sector >= BALANCE.PRESTIGE_MIN_SECTOR && gain > gs.lobbyingPower) {
-      this.prestigeBtn.style.display = 'block';
-      this.prestigeBtn.textContent = `★ END FISCAL YEAR ${gs.fiscalYear} — claim ${fmt(gain)} LOBBYING POWER (+${gain * 2}% forever)`;
-    } else {
-      this.prestigeBtn.style.display = 'none';
-    }
+    // (Prestige is a design placeholder — no fiscal-year button in the Living War.)
   }
 
   // Per-frame lightweight updates (funds counter, progress bars, front bar).
-  frame(): void {
+  frame(info?: { title: string; sub: string; pct: number; label: string }): void {
     const gs = this.gs;
     this.fundsEl.textContent = fmtMoney(gs.funds);
-    this.dayEl.textContent = sectorName(gs.sector, gs.fiscalYear).toUpperCase();
-    this.advEl.textContent = `SECTOR ${gs.sector + 1} · vs ${adversaryName(gs.sector).toUpperCase()}`;
-    this.frontFill.style.width = `${(gs.front * 100).toFixed(1)}%`;
-    this.frontLabel.textContent = `SECTOR ADVANCE — ${(gs.front * 100).toFixed(0)}% · ${gs.sectorsWonTotal} ANNEXED · FY${gs.fiscalYear}`;
+    const lbl = document.getElementById('hud-funds-label');
+    if (lbl) lbl.textContent = gs.rentPerSec > 0.5 ? `FUNDS · RENT +${fmtMoney(gs.rentPerSec)}/S` : 'OPERATING FUNDS';
+    if (info) {
+      this.dayEl.textContent = info.title;
+      this.advEl.textContent = info.sub;
+      this.frontFill.style.width = `${(info.pct * 100).toFixed(1)}%`;
+      this.frontLabel.textContent = info.label;
+    }
     for (let i = 0; i < LINES.length; i++) {
       const ls = gs.lines[i];
       const fill = this.rows[i].fillEl;
@@ -241,9 +234,15 @@ export class UI {
 
   onEvents(events: GameEvent[]): void {
     this.chyron.onEvents(this.gs, events);
+    const b = this.board;
     for (const e of events) {
-      if (e.type === 'sectorWon') {
-        this.toast(`★ ${sectorName(e.sector, this.gs.fiscalYear).toUpperCase()} ANNEXED — war bond ${fmtMoney(e.bond)}`);
+      if (e.type === 'territoryWon' && b) {
+        const t = b.territories.find(q => q.id === e.tid);
+        this.toast(`★ ${(t?.name ?? 'TERRITORY').toUpperCase()} ANNEXED — war bond ${fmtMoney(e.bond)}`);
+      } else if (e.type === 'waveStarted' && b) {
+        this.toast(`⚠ ${b.nations[e.nation].name.toUpperCase()} LAUNCHES ITS FINAL COUNTEROFFENSIVE`);
+      } else if (e.type === 'nationFell' && b) {
+        this.toast(`★★★ ${b.nations[e.nation].name.toUpperCase()} HAS FALLEN — NATION ACQUIRED`);
       }
     }
   }
@@ -316,8 +315,7 @@ export class UI {
         <div class="sub">WHILE YOU WERE AWAY (${fmtDuration(report.seconds)})</div>
         <table>
           <tr><td>Revenue recognized</td><td>${fmtMoney(report.earned)}</td></tr>
-          <tr><td>Sectors annexed</td><td>${report.sectorsWon}</td></tr>
-          <tr><td>Front now contesting</td><td>${sectorName(report.endSector, this.gs.fiscalYear)}</td></tr>
+          <tr><td>Territories annexed</td><td>${report.territoriesWon}</td></tr>
           <tr><td>Units delivered</td><td>${fmt(report.unitsDelivered)}</td></tr>
           <tr><td>${euphemism}</td><td>${fmt(report.unitsLost)}</td></tr>
           <tr><td>Rules of engagement</td><td><span class="redacted">redacted</span></td></tr>
@@ -329,44 +327,4 @@ export class UI {
     overlay.querySelector('#aar-ok')!.addEventListener('click', () => { overlay.remove(); onDone(); });
   }
 
-  private confirmPrestige(): void {
-    const gs = this.gs;
-    const gain = lobbyingGain(gs);
-    const commendation = AAR_COMMENDATIONS[Math.floor(Math.random() * AAR_COMMENDATIONS.length)];
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
-      <div class="modal">
-        <h2>END FISCAL YEAR ${gs.fiscalYear}?</h2>
-        <div class="sub">THE WAR WILL BE DECLARED WON, REBRANDED, AND RESCHEDULED.</div>
-        <p style="font-size:12px;line-height:1.5;color:var(--dim)">
-          Your production lines, funds, and the front line reset.
-          You receive <b style="color:var(--gold2)">${fmt(gain)} Lobbying Power</b>
-          (+${gain * 2}% revenue and firepower, forever) and the
-          <b style="color:var(--text)">${commendation}</b>.
-        </p>
-        <div class="row" style="margin-top:14px">
-          <button class="btn-ghost" id="pr-no">NOT YET</button>
-          <button class="btn-primary" id="pr-yes">RESTRUCTURE</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-    overlay.querySelector('#pr-no')!.addEventListener('click', () => overlay.remove());
-    overlay.querySelector('#pr-yes')!.addEventListener('click', () => {
-      overlay.remove();
-      this.onPrestige?.();
-    });
-  }
-}
-
-export function applyPrestige(gs: GameState): GameState {
-  const gain = lobbyingGain(gs);
-  const fresh = newGame();
-  fresh.company = gs.company;
-  fresh.founded = true;
-  fresh.lobbyingPower = gain;
-  fresh.fiscalYear = gs.fiscalYear + 1;
-  fresh.sectorsWonTotal = gs.sectorsWonTotal;
-  return fresh;
 }

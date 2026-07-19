@@ -20,8 +20,9 @@ const GRAY_BASE = { h: 212, s: 13, l: 43 };
 const CONTESTED = { h: 27, s: 42, l: 49 };
 
 export interface PaintState {
-  sector: number;          // contested conquest index
-  revealAhead: number;     // how many conquest steps past contested are visible
+  owned: Set<number>;        // territory ids you hold
+  contested: Set<number>;    // active front territory ids
+  visibleNations: Set<number>;
   company: string;
 }
 
@@ -53,13 +54,14 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
   canvas.height = TEX_H;
   const ctx = canvas.getContext('2d')!;
 
-  const owner = (t: { order: number }): 'you' | 'foe' | 'contested' | 'fog' => {
-    if (t.order === -1 || t.order < st.sector) return 'you';
-    if (t.order === st.sector) return 'contested';
-    if (t.order <= st.sector + st.revealAhead) return 'foe';
+  const owner = (t: { id: number; nation: number }): 'you' | 'foe' | 'contested' | 'fog' => {
+    if (st.owned.has(t.id)) return 'you';
+    if (st.contested.has(t.id)) return 'contested';
+    if (st.visibleNations.has(t.nation)) return 'foe';
     return 'fog';
   };
   const byId = new Map(board.territories.map(t => [t.id, t]));
+  const nationOf = (t: { nation: number }) => board.nations[t.nation];
 
   // — Fills + borders on a coarse pixel canvas, upscaled with smoothing so
   //   coastlines and borders come out organic instead of stair-stepped —
@@ -81,9 +83,11 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
     const key = l * 10 + (o === 'you' ? 1 : o === 'contested' ? 2 : o === 'foe' ? 3 : 4);
     let c = colorCache.get(key);
     if (!c) {
+      // Enemy land uses its NATION's palette family so countries read as
+      // distinct blocs; your empire is always gold.
       c = o === 'you' ? terrColor(GOLD_BASE, l)
         : o === 'contested' ? terrColor(CONTESTED, l)
-        : o === 'foe' ? terrColor(GRAY_BASE, l)
+        : o === 'foe' ? terrColor(nationOf(t).color, l)
         : fogRGB;
       colorCache.set(key, c);
     }
@@ -102,11 +106,15 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
         c = touchesLand ? shallowRGB : seaRGB;
       } else {
         c = cellColor(l);
-        // Border / coast detection against left+up neighbors.
+        // Border / coast detection against left+up neighbors. Borders between
+        // NATIONS draw darker than internal territory borders.
         const ll = gx > 0 ? board.labels[k - 1] : -1;
         const lu = gy > 0 ? board.labels[k - GRID_W] : -1;
         if (ll < 0 || lu < 0) c = coastRGB;
-        else if (ll !== l || lu !== l) c = borderRGB;
+        else if (ll !== l || lu !== l) {
+          const tl = byId.get(l), tn = byId.get(ll !== l ? ll : lu);
+          c = tl && tn && tl.nation !== tn.nation ? coastRGB : borderRGB;
+        }
       }
       px[k * 4] = c[0]; px[k * 4 + 1] = c[1]; px[k * 4 + 2] = c[2]; px[k * 4 + 3] = 255;
     }
@@ -222,7 +230,7 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
     const o = owner(t);
     const px = t.cx * SX, py = t.cy * SY;
     if (o === 'fog') continue;
-    const display = t.order === -1 ? `${st.company.split(' ')[0].toUpperCase()} HQ` : t.name.toUpperCase();
+    const display = t.name.toUpperCase();
     if (o === 'you') {
       drawStar(ctx, px, py - 28 * K, 13 * K, '#6d4e13');
       ctx.fillStyle = 'rgba(48,34,8,0.95)';
@@ -239,14 +247,26 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
       drawSpaced(ctx, '· CONTESTED ·', px, py + 38 * K, 2 * K);
     }
   }
-  // One label for the whole fogged region.
-  const fogged = board.territories.filter(t => owner(t) === 'fog');
-  if (fogged.length > 0) {
-    const fx = fogged.reduce((s, t) => s + t.cx, 0) / fogged.length * SX;
-    const fy = fogged.reduce((s, t) => s + t.cy, 0) / fogged.length * SY;
-    ctx.font = `600 ${Math.round(22 * K)}px ui-monospace, Menlo, monospace`;
-    ctx.fillStyle = 'rgba(170,178,190,0.5)';
-    drawSpaced(ctx, '[ UNSURVEYED — ACQUIRE ]', fx, fy, 3 * K);
+  // Nation names: big label at each visible enemy nation's centroid, with its
+  // regime name beneath. Fogged nations get one shrouded marker.
+  for (const n of board.nations) {
+    if (n.id === board.homeNation || n.territories.length === 0) continue;
+    const terrs = n.territories.map(id => byId.get(id)!).filter(Boolean);
+    const ncx = terrs.reduce((s, t) => s + t.cx, 0) / terrs.length * SX;
+    const ncy = terrs.reduce((s, t) => s + t.cy, 0) / terrs.length * SY;
+    if (st.visibleNations.has(n.id)) {
+      const conquered = terrs.every(t => st.owned.has(t.id));
+      ctx.font = `900 ${Math.round(44 * K)}px ui-monospace, Menlo, monospace`;
+      ctx.fillStyle = conquered ? 'rgba(120,90,26,0.4)' : 'rgba(240,244,248,0.34)';
+      drawSpaced(ctx, n.name.toUpperCase(), ncx, ncy - 30 * K, 8 * K);
+      ctx.font = `600 ${Math.round(18 * K)}px ui-monospace, Menlo, monospace`;
+      ctx.fillStyle = conquered ? 'rgba(120,90,26,0.35)' : 'rgba(240,244,248,0.28)';
+      drawSpaced(ctx, conquered ? '· ACQUIRED ·' : `· ${n.adversaryName.toUpperCase()} ·`, ncx, ncy - 4 * K, 2.5 * K);
+    } else {
+      ctx.font = `600 ${Math.round(22 * K)}px ui-monospace, Menlo, monospace`;
+      ctx.fillStyle = 'rgba(170,178,190,0.4)';
+      drawSpaced(ctx, '[ UNSURVEYED ]', ncx, ncy, 3 * K);
+    }
   }
 
   // — Vignette —

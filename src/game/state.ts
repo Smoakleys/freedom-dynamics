@@ -7,8 +7,8 @@ export interface LineState {
   hired: boolean;
   progress: number;      // 0..1 batch progress
   running: boolean;      // a manual batch is in flight
-  army: number;          // fielded units currently surviving at the front
-  delivered: number;     // lifetime units delivered (this fiscal year)
+  army: number;          // fielded units currently surviving at the fronts
+  delivered: number;     // lifetime units delivered
 }
 
 export interface Stats {
@@ -17,18 +17,29 @@ export interface Stats {
   earnedOffline: number;
 }
 
+export interface WaveState {
+  nation: number;
+  power: number;
+  initial: number;
+}
+
 export interface GameState {
   version: number;
   company: string;
   funds: number;
-  lifetimeEarnings: number;   // this fiscal year, for LP calc
-  lobbyingPower: number;
-  fiscalYear: number;
-  sector: number;             // index of the sector currently being contested
-  front: number;              // 0..1 progress through the contested sector
-  sectorsWonTotal: number;
+  lifetimeEarnings: number;
+  lobbyingPower: number;          // dormant — prestige is a design placeholder
+  worldSeed: number;
+  owned: number[];                // captured/held territory ids (includes homeland)
+  garrisons: Record<number, number>;
+  holdTimers: Record<number, number>;
+  captureStamp: number;           // bumps on every ownership change (cache key)
+  fallenNations: number[];
+  wave: WaveState | null;
+  rentPerSec: number;
+  territoriesWonTotal: number;
   lines: LineState[];
-  lastSeen: number;           // epoch ms of last save
+  lastSeen: number;
   founded: boolean;
   stats: Stats;
 }
@@ -41,15 +52,20 @@ export function newGame(): GameState {
   const lines = LINES.map(() => newLineState());
   lines[0].owned = 1; // the company begins with one proud refurbished-rifle line
   return {
-    version: 2,
+    version: 3,
     company: '',
     funds: 0,
     lifetimeEarnings: 0,
     lobbyingPower: 0,
-    fiscalYear: 1,
-    sector: 0,
-    front: 0.15,
-    sectorsWonTotal: 0,
+    worldSeed: 1,
+    owned: [],            // homeland territories are granted on first board bind
+    garrisons: {},
+    holdTimers: {},
+    captureStamp: 0,
+    fallenNations: [],
+    wave: null,
+    rentPerSec: 0,
+    territoriesWonTotal: 0,
     lines,
     lastSeen: Date.now(),
     founded: false,
@@ -57,15 +73,11 @@ export function newGame(): GameState {
   };
 }
 
-// The front's absolute position along the theater's advance axis, in world units.
-export function advanceX(gs: GameState, spacing: number): number {
-  return (gs.sector + gs.front) * spacing;
-}
-
 // Events emitted by the sim for UI/chyron/AAR consumption.
 export type GameEvent =
   | { type: 'delivered'; line: number; count: number; revenue: number }
-  | { type: 'sectorWon'; sector: number; bond: number }
-  | { type: 'newSector'; sector: number }
+  | { type: 'territoryWon'; tid: number; bond: number }
+  | { type: 'waveStarted'; nation: number }
+  | { type: 'nationFell'; nation: number }
   | { type: 'milestone'; line: number; threshold: number }
   | { type: 'firstUnit'; line: number };

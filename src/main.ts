@@ -1,32 +1,55 @@
 import './ui/styles.css';
 import { newGame, type GameState } from './game/state';
 import { load, save } from './game/save';
-import { tick, fastForward } from './game/sim';
-import { UI, applyPrestige } from './ui/ui';
+import { tick, fastForward, bindBoard } from './game/sim';
+import { frontInfos } from './game/war';
+import { generateBoard } from './render/board/gen';
+import { UI } from './ui/ui';
 import { BoardView } from './render/boardview';
-import { CHYRON_REACTIVE } from './game/content';
 
-let gs: GameState = load() ?? newGame();
+const gs: GameState = load() ?? newGame();
+
+// The world is deterministic from its seed — same board every session.
+const board = generateBoard(gs.worldSeed);
+bindBoard(board, gs);
 
 // Offline catch-up before anything renders.
 const awaySeconds = (Date.now() - gs.lastSeen) / 1000;
 const report = gs.founded && awaySeconds > 60 ? fastForward(gs, awaySeconds) : null;
 
 const ui = new UI(gs);
-const battlefield = new BoardView(document.getElementById('battle-canvas') as HTMLCanvasElement, gs);
+ui.board = board;
+ui.chyron.board = board;
+const battlefield = new BoardView(document.getElementById('battle-canvas') as HTMLCanvasElement, gs, board);
 
-ui.onPrestige = () => {
-  gs = applyPrestige(gs);
-  save(gs);
-  ui.chyron.push(CHYRON_REACTIVE.prestige[Math.floor(Math.random() * CHYRON_REACTIVE.prestige.length)]
-    .replace('{COMPANY}', gs.company));
-  // Cheap full restart keeps every system consistent with the fresh state.
-  location.reload();
-};
+function hudInfo(): { title: string; sub: string; pct: number; label: string } {
+  const fronts = frontInfos(board, gs);
+  const total = board.territories.length;
+  const held = gs.owned.length;
+  const pct = held / Math.max(total, 1);
+  if (gs.wave) {
+    const n = board.nations[gs.wave.nation];
+    return {
+      title: `${n.name.toUpperCase()} — FINAL OFFENSIVE`,
+      sub: `REPEL THE WAVE · ${Math.round((gs.wave.power / Math.max(gs.wave.initial, 1)) * 100)}% REMAINING`,
+      pct,
+      label: `EMPIRE — ${held}/${total} TERRITORIES · ${fronts.length} FRONTS`
+    };
+  }
+  const hot = fronts.length > 0 ? fronts.reduce((a, b) => (b.committed > a.committed ? b : a)) : null;
+  const t = hot ? board.territories.find(q => q.id === hot.tid) : null;
+  const nation = t ? board.nations[t.nation] : null;
+  return {
+    title: t ? t.name.toUpperCase() : 'ALL QUIET',
+    sub: t && nation ? `${fronts.length} FRONTS ACTIVE · vs ${nation.adversaryName.toUpperCase()}` : 'THE CONTINENT AWAITS',
+    pct,
+    label: `EMPIRE — ${held}/${total} TERRITORIES · ${gs.territoriesWonTotal} ANNEXED`
+  };
+}
 
 function begin(): void {
   document.getElementById('splash')?.remove();
-  if (report && (report.earned > 0 || report.sectorsWon > 0)) {
+  if (report && (report.earned > 0 || report.territoriesWon > 0)) {
     ui.afterAction(report, () => { /* resume */ });
   }
 
@@ -50,7 +73,7 @@ function begin(): void {
 
     battlefield.update(gs, dt, events, now / 1000);
     ui.chyron.update(dt);
-    ui.frame();
+    ui.frame(hudInfo());
 
     uiAcc += dt;
     if (uiAcc > 0.3) { uiAcc = 0; ui.refresh(); }

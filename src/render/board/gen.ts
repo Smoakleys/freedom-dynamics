@@ -1,50 +1,59 @@
-// Board generation: seeded organic Voronoi territories on a portrait continent,
-// plus the conquest order that maps the sim's linear sector chain onto the map.
-// All geometry work happens on a coarse grid; painting upscales later.
+// Living War world generation: a continent tiled with NATIONS, each a cluster
+// of territories. No linear conquest order — fronts emerge wherever owned land
+// borders enemy land. Geometry on a coarse grid; painting upscales later.
 
 import { mulberry32 } from '../rng';
-import { sectorName } from '../../game/content';
 
 export const GRID_W = 360;
 export const GRID_H = 720;
-// World units the board occupies in the 3D scene (portrait).
 export const BOARD_W = 120;
 export const BOARD_H = 240;
 
+const NATION_COUNT = 9;
+const TERR_SEEDS = 78;
+
+export interface Nation {
+  id: number;
+  name: string;
+  color: { h: number; s: number; l: number };  // enemy palette family
+  adversaryName: string;
+  territories: number[];
+}
+
 export interface Territory {
   id: number;
-  cx: number; cy: number;        // centroid, grid coords
+  nation: number;
+  cx: number; cy: number;
   name: string;
-  order: number;                 // conquest order == sector index (-1 for HQ)
   neighbors: Set<number>;
+  strength: number;          // garrison power this territory starts with
 }
 
 export interface Board {
-  labels: Int16Array;            // GRID_W*GRID_H, territory id or -1 for sea
+  labels: Int16Array;
   territories: Territory[];
-  conquest: number[];            // conquest[sector] = territory id
-  // Depth fields per territory, lazily built: 0 at the attack border, 1 at far side.
-  depthFields: Map<number, Float32Array>;
+  nations: Nation[];
+  homeNation: number;
   seed: number;
+  // Cache: attack-depth fields keyed by territory id + owned-set stamp.
+  depthFields: Map<string, Float32Array>;
 }
+
+const NATION_FIRST = ['Vel', 'Kor', 'Zar', 'Bel', 'Dra', 'Nov', 'Ost', 'Gal', 'Mar', 'Tyr', 'Ulm', 'Vor'];
+const NATION_SECOND = ['grad', 'istan', 'ovia', 'land', 'mark', 'burg', 'onia', 'aria', 'esk', 'heim', 'stan', 'ia'];
+const ADV_BRANDS = ['People\'s Front', 'Provisional Authority', 'Liberation Committee', 'Sovereign Guard', 'National Directorate', 'Defense League', 'Unity Junta', 'Continuity Government', 'Patriotic Syndicate'];
+
+const TERR_ADJ = ['Copper', 'Rust', 'Bleak', 'Powder', 'Glass', 'Static', 'Iron', 'Cinder', 'Mirror', 'Grim', 'Hollow', 'Broken', 'Silent', 'Red', 'Dust', 'Granite', 'Ash', 'Salt', 'Thorn', 'Pale'];
+const TERR_NOUN = ['Gulch', 'Flats', 'Ridge', 'Basin', 'Valley', 'Fork', 'Pass', 'Hills', 'Barrens', 'Crossing', 'Steppe', 'Reach', 'Hollows', 'Plateau', 'Marsh', 'Divide', 'Fields', 'Shelf', 'Spur', 'Wastes'];
+const TERR_TYPE = ['', '', '', ' Refinery', ' Junction', ' Depot', ' Exclusion Zone', ' Testing Range', ' Logistics Hub', ' Tax Haven', ' Free Port', ' Dam'];
 
 function idx(x: number, y: number): number { return y * GRID_W + x; }
 
-export function generateBoard(fiscalYear: number): Board {
-  const seed = 1776 + fiscalYear * 7919;
+export function generateBoard(worldSeed: number): Board {
+  const seed = 1776 + worldSeed * 7919;
   const rand = mulberry32(seed);
 
-  // Territory seed points, spaced by rejection sampling.
-  const N = 30;
-  const pts: { x: number; y: number }[] = [];
-  let guard = 0;
-  while (pts.length < N && guard++ < 4000) {
-    const p = { x: 24 + rand() * (GRID_W - 48), y: 24 + rand() * (GRID_H - 48) };
-    if (pts.every(q => (q.x - p.x) ** 2 + (q.y - p.y) ** 2 > 72 ** 2)) pts.push(p);
-  }
-
-  // Hash-based value noise on an unbounded domain — no wrapping/clamping
-  // seams (the v1 lattice sampler clamped coords and carved vertical cliffs).
+  // Hash value-noise, unbounded domain.
   const nSeed = Math.floor(rand() * 1e6);
   const hash = (ix: number, iy: number): number => {
     let h = Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + nSeed;
@@ -60,17 +69,31 @@ export function generateBoard(fiscalYear: number): Board {
     return a + (b - a) * s(fx) + (c - a) * s(fy) + (a - b - c + d) * s(fx) * s(fy);
   };
 
-  // Continent mask: tall blobby landmass, gently irregular coast.
+  // Continent mask.
   const cx = GRID_W / 2, cy = GRID_H / 2;
   const isLand = (x: number, y: number): boolean => {
     const nx = (x - cx) / (GRID_W * 0.44);
     const ny = (y - cy) / (GRID_H * 0.46);
     const r = Math.sqrt(nx * nx + ny * ny);
     const wob = (vnoise(x / 52, y / 52) - 0.5) * 0.34 + (vnoise(x / 16 + 90, y / 16) - 0.5) * 0.1;
-    return r < 0.9 + wob;
+    return r < 0.94 + wob;
   };
 
-  // Organic Voronoi: distance perturbed by noise so borders wander.
+  // Territory seeds (spaced), then nation seeds from a subset spread.
+  const pts: { x: number; y: number }[] = [];
+  let guard = 0;
+  while (pts.length < TERR_SEEDS && guard++ < 8000) {
+    const p = { x: 20 + rand() * (GRID_W - 40), y: 20 + rand() * (GRID_H - 40) };
+    if (pts.every(q => (q.x - p.x) ** 2 + (q.y - p.y) ** 2 > 44 ** 2)) pts.push(p);
+  }
+  const natSeeds: { x: number; y: number }[] = [];
+  guard = 0;
+  while (natSeeds.length < NATION_COUNT && guard++ < 6000) {
+    const p = { x: 40 + rand() * (GRID_W - 80), y: 40 + rand() * (GRID_H - 80) };
+    if (natSeeds.every(q => (q.x - p.x) ** 2 + (q.y - p.y) ** 2 > 130 ** 2)) natSeeds.push(p);
+  }
+
+  // Organic Voronoi over territory seeds.
   const labels = new Int16Array(GRID_W * GRID_H).fill(-1);
   for (let y = 0; y < GRID_H; y++) {
     for (let x = 0; x < GRID_W; x++) {
@@ -86,7 +109,7 @@ export function generateBoard(fiscalYear: number): Board {
     }
   }
 
-  // Centroids, areas, adjacency.
+  // Areas, centroids, adjacency; drop slivers.
   const areas = new Array(pts.length).fill(0);
   const sx = new Array(pts.length).fill(0);
   const sy = new Array(pts.length).fill(0);
@@ -96,77 +119,96 @@ export function generateBoard(fiscalYear: number): Board {
       const l = labels[idx(x, y)];
       if (l < 0) continue;
       areas[l]++; sx[l] += x; sy[l] += y;
-      const l2 = labels[idx(x - 1, y)], l3 = labels[idx(x, y - 1)];
-      if (l2 >= 0 && l2 !== l) { nbrs[l].add(l2); nbrs[l2].add(l); }
-      if (l3 >= 0 && l3 !== l) { nbrs[l].add(l3); nbrs[l3].add(l); }
+      const ll = labels[idx(x - 1, y)], lu = labels[idx(x, y - 1)];
+      if (ll >= 0 && ll !== l) { nbrs[l].add(ll); nbrs[ll].add(l); }
+      if (lu >= 0 && lu !== l) { nbrs[l].add(lu); nbrs[lu].add(l); }
     }
   }
-
-  // Drop slivers (reassign to sea) — tiny territories read as noise.
-  const valid: number[] = [];
-  for (let i = 0; i < pts.length; i++) {
-    if (areas[i] > 1400) valid.push(i);
-  }
+  const valid = new Set<number>();
+  for (let i = 0; i < pts.length; i++) if (areas[i] > 800) valid.add(i);
   for (let k = 0; k < labels.length; k++) {
-    if (labels[k] >= 0 && !valid.includes(labels[k])) labels[k] = -1;
+    if (labels[k] >= 0 && !valid.has(labels[k])) labels[k] = -1;
   }
 
-  const territories: Territory[] = valid.map(i => ({
-    id: i,
-    cx: sx[i] / areas[i],
-    cy: sy[i] / areas[i],
-    name: '',
-    order: -2,
-    neighbors: new Set([...nbrs[i]].filter(n => valid.includes(n)))
-  }));
-  const byId = new Map(territories.map(t => [t.id, t]));
-
-  // Conquest order: start from the bottom-most territory (HQ, order -1 = owned
-  // from the start), then Prim-walk: always take the unconquered neighbor of the
-  // conquered set closest to the conquered frontier — gold spreads organically.
-  const start = territories.reduce((a, b) => (b.cy > a.cy ? b : a));
-  start.order = -1;
-  const conquered = new Set([start.id]);
-  const conquest: number[] = [];
-  while (conquered.size < territories.length) {
-    let pick: Territory | null = null, bd = Infinity;
-    for (const t of territories) {
-      if (conquered.has(t.id)) continue;
-      let touches = false, dmin = Infinity;
-      for (const n of t.neighbors) {
-        if (conquered.has(n)) {
-          touches = true;
-          const nt = byId.get(n)!;
-          dmin = Math.min(dmin, (nt.cx - t.cx) ** 2 + (nt.cy - t.cy) ** 2);
-        }
-      }
-      // Prefer touching territories; among them, southernmost-ish first.
-      const score = touches ? dmin - t.cy * 40 : 1e12 + (t.cy - GRID_H) ** 2;
-      if (score < bd) { bd = score; pick = t; }
+  // Assign territories to nearest nation seed → nation clusters.
+  const territories: Territory[] = [];
+  for (const i of valid) {
+    const tcx = sx[i] / areas[i], tcy = sy[i] / areas[i];
+    let nb = 0, nbd = Infinity;
+    for (let n = 0; n < natSeeds.length; n++) {
+      const d = (natSeeds[n].x - tcx) ** 2 + (natSeeds[n].y - tcy) ** 2;
+      if (d < nbd) { nbd = d; nb = n; }
     }
-    if (!pick) break;
-    pick.order = conquest.length;
-    conquest.push(pick.id);
-    conquered.add(pick.id);
+    const s = i * 31 + worldSeed * 977;
+    const pick = <T,>(arr: T[], salt: number): T =>
+      arr[Math.abs(Math.imul((s + salt) ^ 0x9e3779b9, 0x85ebca6b)) % arr.length];
+    territories.push({
+      id: i, nation: nb,
+      cx: tcx, cy: tcy,
+      name: `${pick(TERR_ADJ, 0)} ${pick(TERR_NOUN, 7)}${pick(TERR_TYPE, 13)}`,
+      neighbors: new Set([...nbrs[i]].filter(n => valid.has(n))),
+      strength: 0
+    });
   }
 
+  // Home nation: southernmost nation that has a real starter cluster (≥4
+  // territories) — a two-territory homeland makes a feeble empire.
+  const natCount = new Map<number, number>();
+  const natY = new Map<number, number>();
   for (const t of territories) {
-    t.name = t.order === -1 ? 'HQ' : sectorName(t.order, fiscalYear);
+    natCount.set(t.nation, (natCount.get(t.nation) ?? 0) + 1);
+    natY.set(t.nation, Math.max(natY.get(t.nation) ?? 0, t.cy));
+  }
+  const ranked = [...natCount.keys()].sort((a, b) => (natY.get(b)! - natY.get(a)!));
+  const homeNation = ranked.find(n => (natCount.get(n) ?? 0) >= 4) ?? ranked[0];
+
+  // Nation records + garrison strengths (scale with graph distance from home).
+  const nations: Nation[] = [];
+  for (let n = 0; n < natSeeds.length; n++) {
+    const terrs = territories.filter(t => t.nation === n).map(t => t.id);
+    const r2 = mulberry32(seed + n * 101);
+    nations.push({
+      id: n,
+      name: n === homeNation ? 'THE HOMELAND'
+        : NATION_FIRST[Math.floor(r2() * NATION_FIRST.length)] + NATION_SECOND[Math.floor(r2() * NATION_SECOND.length)],
+      color: { h: 190 + r2() * 140, s: 8 + r2() * 14, l: 38 + r2() * 12 },
+      adversaryName: ADV_BRANDS[n % ADV_BRANDS.length],
+      territories: terrs
+    });
   }
 
-  return { labels, territories, conquest, depthFields: new Map(), seed };
+  // Graph-distance from home territories → garrison strength tiers.
+  const byId = new Map(territories.map(t => [t.id, t]));
+  const dist = new Map<number, number>();
+  const q: number[] = [];
+  for (const t of territories) if (t.nation === homeNation) { dist.set(t.id, 0); q.push(t.id); }
+  let head = 0;
+  while (head < q.length) {
+    const id = q[head++];
+    const d = dist.get(id)!;
+    for (const nb of byId.get(id)!.neighbors) {
+      if (!dist.has(nb)) { dist.set(nb, d + 1); q.push(nb); }
+    }
+  }
+  for (const t of territories) {
+    const d = dist.get(t.id) ?? 8;
+    t.strength = t.nation === homeNation ? 0 : 22 * Math.pow(1.55, d - 1);
+  }
+
+  return { labels, territories, nations, homeNation, seed, depthFields: new Map() };
 }
 
-// Depth field for the contested territory: BFS from its border with already-
-// conquered land. 0 at the attack border, 1 at the far edge. Drives the seam
-// position (iso-line at front%) and where the battle band sits.
-export function depthField(board: Board, sector: number): Float32Array | null {
-  const cached = board.depthFields.get(sector);
-  if (cached) return cached;
-  if (sector >= board.conquest.length) return null;
-  const tid = board.conquest[sector];
-  const ownedSet = new Set<number>(board.conquest.slice(0, sector));
-  ownedSet.add(board.territories.find(t => t.order === -1)!.id);
+export function labelAt(board: Board, x: number, y: number): number {
+  if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return -1;
+  return board.labels[Math.floor(y) * GRID_W + Math.floor(x)];
+}
+
+// Depth field for attacking `tid` from the owned set: 0 at the shared border,
+// 1 at the far side. Cached until ownership changes (bump `stamp`).
+export function depthField(board: Board, tid: number, owned: Set<number>, stamp: number): Float32Array | null {
+  const key = `${tid}|${stamp}`;
+  const hit = board.depthFields.get(key);
+  if (hit) return hit;
 
   const field = new Float32Array(GRID_W * GRID_H).fill(-1);
   const queue: number[] = [];
@@ -174,66 +216,49 @@ export function depthField(board: Board, sector: number): Float32Array | null {
     for (let x = 1; x < GRID_W - 1; x++) {
       const k = idx(x, y);
       if (board.labels[k] !== tid) continue;
-      const touchOwned = [labelAt(board, x - 1, y), labelAt(board, x + 1, y), labelAt(board, x, y - 1), labelAt(board, x, y + 1)]
-        .some(l => l >= 0 && ownedSet.has(l));
-      if (touchOwned) { field[k] = 0; queue.push(k); }
+      const touch = [board.labels[k - 1], board.labels[k + 1], board.labels[k - GRID_W], board.labels[k + GRID_W]]
+        .some(l => l >= 0 && owned.has(l));
+      if (touch) { field[k] = 0; queue.push(k); }
     }
   }
-  // No shared border (shouldn't happen with Prim order) — fall back to south edge.
-  if (queue.length === 0) {
-    let maxY = 0;
-    for (let y = 1; y < GRID_H - 1; y++) for (let x = 1; x < GRID_W - 1; x++) {
-      if (board.labels[idx(x, y)] === tid) maxY = Math.max(maxY, y);
-    }
-    for (let x = 1; x < GRID_W - 1; x++) {
-      const k = idx(x, maxY);
-      if (board.labels[k] === tid) { field[k] = 0; queue.push(k); }
-    }
-  }
+  if (queue.length === 0) return null;
   let head = 0, maxD = 1;
   while (head < queue.length) {
     const k = queue[head++];
     const x = k % GRID_W, y = Math.floor(k / GRID_W);
     const d = field[k];
     maxD = Math.max(maxD, d);
-    for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
-      if (nx < 0 || ny < 0 || nx >= GRID_W || ny >= GRID_H) continue;
-      const nk = idx(nx, ny);
+    for (const nk of [k - 1, k + 1, k - GRID_W, k + GRID_W]) {
+      if (nk < 0 || nk >= field.length) continue;
+      const nx2 = nk % GRID_W;
+      if (Math.abs(nx2 - x) > 1) continue;
       if (board.labels[nk] !== tid || field[nk] >= 0) continue;
       field[nk] = d + 1;
       queue.push(nk);
     }
+    void y;
   }
   for (let k = 0; k < field.length; k++) if (field[k] > 0) field[k] /= maxD;
-  board.depthFields.set(sector, field);
+  if (board.depthFields.size > 24) board.depthFields.clear();
+  board.depthFields.set(key, field);
   return field;
 }
 
-export function labelAt(board: Board, x: number, y: number): number {
-  if (x < 0 || y < 0 || x >= GRID_W || y >= GRID_H) return -1;
-  return board.labels[idx(x, y)];
-}
-
-// Points along the current front iso-line, ordered into a polyline via
-// nearest-neighbor chaining. Front display is clamped so the battle stays
-// inside the territory even at 0% / 100%.
-export function frontLine(board: Board, sector: number, front: number): { x: number; y: number }[] {
-  const field = depthField(board, sector);
+// Ordered polyline along the capture progress iso-line inside `tid`.
+export function frontLine(board: Board, tid: number, owned: Set<number>, stamp: number, progress: number): { x: number; y: number }[] {
+  const field = depthField(board, tid, owned, stamp);
   if (!field) return [];
-  const f = Math.min(0.86, Math.max(0.12, front));
-  const tid = board.conquest[sector];
+  const f = Math.min(0.86, Math.max(0.1, progress));
   const raw: { x: number; y: number }[] = [];
   for (let y = 1; y < GRID_H - 1; y += 2) {
     for (let x = 1; x < GRID_W - 1; x += 2) {
       const k = idx(x, y);
       if (board.labels[k] !== tid) continue;
       const d = field[k];
-      if (d < 0) continue;
-      if (Math.abs(d - f) < 0.04) raw.push({ x, y });
+      if (d >= 0 && Math.abs(d - f) < 0.045) raw.push({ x, y });
     }
   }
   if (raw.length < 2) return raw;
-  // Chain: start at an extreme point, repeatedly hop to the nearest unused.
   let start = 0;
   for (let i = 1; i < raw.length; i++) if (raw[i].x < raw[start].x) start = i;
   const used = new Array(raw.length).fill(false);
@@ -247,7 +272,7 @@ export function frontLine(board: Board, sector: number, front: number): { x: num
       const d = (raw[i].x - raw[cur].x) ** 2 + (raw[i].y - raw[cur].y) ** 2;
       if (d < bd) { bd = d; best = i; }
     }
-    if (best < 0 || bd > 30 * 30) break; // gap — stop rather than scribble
+    if (best < 0 || bd > 30 * 30) break;
     used[best] = true;
     out.push(raw[best]);
     cur = best;
@@ -256,8 +281,5 @@ export function frontLine(board: Board, sector: number, front: number): { x: num
 }
 
 export function gridToWorld(gx: number, gy: number): { x: number; z: number } {
-  return {
-    x: (gx / GRID_W - 0.5) * BOARD_W,
-    z: (gy / GRID_H - 0.5) * BOARD_H
-  };
+  return { x: (gx / GRID_W - 0.5) * BOARD_W, z: (gy / GRID_H - 0.5) * BOARD_H };
 }

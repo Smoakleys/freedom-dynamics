@@ -4,11 +4,11 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Board, generateBoard, depthField, frontLine, gridToWorld, GRID_W, BOARD_W, BOARD_H } from './board/gen';
-import { paintBoard, TEX_W, TEX_H } from './board/paint';
+import { Board, depthField, frontLine, gridToWorld, GRID_W, BOARD_W, BOARD_H } from './board/gen';
+import { paintBoard } from './board/paint';
 import { Effects } from './effects';
-import { LINES, BALANCE } from '../game/content';
-import { adversaryStrength, armyPower } from '../game/battle';
+import { LINES } from '../game/content';
+import { armyPower, frontInfos, activeFronts, visibleNations, type FrontInfo } from '../game/war';
 import type { GameState, GameEvent } from '../game/state';
 
 const REVEAL_STEPS = 2;          // conquest steps visible past the contested territory
@@ -42,7 +42,8 @@ export class BoardView {
   private board: Board;
   private mapCanvas = document.createElement('canvas');
   private mapTex: THREE.CanvasTexture;
-  private paintedSector = -99;
+  private paintedStamp = -99;
+  private hotTid = -1;
   private seam: THREE.Line;
   private seamGeo = new THREE.BufferGeometry();
   private seamGlow!: THREE.Mesh;
@@ -69,7 +70,8 @@ export class BoardView {
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
 
-  constructor(private canvas: HTMLCanvasElement, gs: GameState) {
+  constructor(private canvas: HTMLCanvasElement, gs: GameState, board: Board) {
+    this.board = board;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setClearColor(0x22303a);
@@ -82,7 +84,6 @@ export class BoardView {
     sun.position.set(-30, 60, 20);
     this.scene.add(sun);
 
-    this.board = generateBoard(gs.fiscalYear);
     this.mapTex = new THREE.CanvasTexture(this.mapCanvas);
     this.mapTex.colorSpace = THREE.SRGBColorSpace;
     this.mapTex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
@@ -221,19 +222,34 @@ export class BoardView {
     return g;
   }
 
-  // Where the fighting actually is: midpoint of the front seam, falling back
-  // to the contested territory's centroid.
+  // Where the fighting is hottest: the front drawing the most committed force
+  // (sticky so the camera doesn't ping-pong between similar fronts).
+  private hotFront(gs: GameState): FrontInfo | null {
+    const fronts = frontInfos(this.board, gs);
+    if (fronts.length === 0) return null;
+    const cur = fronts.find(f => f.tid === this.hotTid);
+    const best = fronts.reduce((a, b) => (b.committed > a.committed ? b : a));
+    const pick = cur && cur.committed > best.committed * 0.7 ? cur : best;
+    this.hotTid = pick.tid;
+    return pick;
+  }
+
   private contestedCenter(gs: GameState): { x: number; z: number } {
-    const pts = frontLine(this.board, gs.sector, gs.front);
-    if (pts.length > 0) {
-      const mx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-      const my = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-      const w = gridToWorld(mx, my);
-      return { x: w.x, z: w.z };
+    const hot = this.hotFront(gs);
+    if (hot) {
+      const owned = new Set(gs.owned);
+      const pts = frontLine(this.board, hot.tid, owned, gs.captureStamp, hot.progress);
+      if (pts.length > 0) {
+        const mx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const my = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        const w = gridToWorld(mx, my);
+        return { x: w.x, z: w.z };
+      }
+      const t = this.board.territories.find(q => q.id === hot.tid);
+      if (t) { const w = gridToWorld(t.cx, t.cy); return { x: w.x, z: w.z }; }
     }
-    const tid = this.board.conquest[Math.min(gs.sector, this.board.conquest.length - 1)];
-    const t = this.board.territories.find(q => q.id === tid) ?? this.board.territories[0];
-    const w = gridToWorld(t.cx, t.cy);
+    const home = this.board.territories.find(t => t.nation === this.board.homeNation) ?? this.board.territories[0];
+    const w = gridToWorld(home.cx, home.cy);
     return { x: w.x, z: w.z };
   }
 
@@ -296,19 +312,24 @@ export class BoardView {
 
   update(gs: GameState, dt: number, events: GameEvent[], time: number): void {
     this.time = time;
+    const owned = new Set(gs.owned);
+    const fronts = frontInfos(this.board, gs);
 
-    // Repaint the map when the contested sector changes (capture/fog reveal).
-    if (gs.sector !== this.paintedSector) {
-      this.paintedSector = gs.sector;
+    // Repaint the map when ownership changes (capture/fog reveal).
+    if (gs.captureStamp !== this.paintedStamp) {
+      this.paintedStamp = gs.captureStamp;
       paintBoard(this.mapCanvas, this.board, {
-        sector: gs.sector, revealAhead: REVEAL_STEPS, company: gs.company || 'FREEDOM'
+        owned,
+        contested: new Set(activeFronts(this.board, gs)),
+        visibleNations: visibleNations(this.board, gs),
+        company: gs.company || 'FREEDOM'
       });
       this.mapTex.needsUpdate = true;
-      this.board.depthFields.clear();
     }
 
-    // Front seam: ordered iso-line polyline + additive glow ribbon.
-    const pts = frontLine(this.board, gs.sector, gs.front);
+    // Hot front: full seam + pieces. Other fronts: ambient skirmish glow.
+    const hot = this.hotFront(gs);
+    const pts = hot ? frontLine(this.board, hot.tid, owned, gs.captureStamp, hot.progress) : [];
     if (pts.length > 1) {
       const arr = new Float32Array(pts.length * 3);
       const ribbon = new Float32Array(pts.length * 2 * 3);
@@ -344,11 +365,11 @@ export class BoardView {
       this.seam.visible = this.seamGlow.visible = false;
     }
 
-    // Battle pieces along the seam.
-    this.updatePieces(gs, pts, dt);
+    // Battle pieces along the hot seam.
+    this.updatePieces(gs, pts, hot, dt);
 
-    // Skirmish flashes on the seam at every altitude.
-    const A = adversaryStrength(gs.sector);
+    // Skirmish flashes: hot front gets the show, every other front flickers too.
+    const A = hot ? Math.max(hot.garrison, hot.strength * 0.15, 8) : 0;
     const P = armyPower(gs);
     if (P > 0 && pts.length > 0) {
       this.skirmishAcc += dt * Math.min(2 + Math.pow(Math.min(P, A), 0.22), 7);
@@ -358,6 +379,17 @@ export class BoardView {
         const w = gridToWorld(p.x + (Math.random() - 0.5) * 6, p.y + (Math.random() - 0.5) * 6);
         this.tmp.set(w.x, 0.3, w.z);
         this.effects.explode(this.tmp, this.dist > UNIT_VIS_DIST ? 1.6 : 0.8);
+      }
+      // Ambient war on the other fronts — the whole border is alive.
+      for (const f of fronts) {
+        if (!hot || f.tid === hot.tid) continue;
+        if (Math.random() < dt * Math.min(0.4 + f.committed / Math.max(P, 1) * 3, 1.4)) {
+          const t = this.board.territories.find(q => q.id === f.tid);
+          if (!t) continue;
+          const w = gridToWorld(t.cx + (Math.random() - 0.5) * 16, t.cy + (Math.random() - 0.5) * 16);
+          this.tmp.set(w.x, 0.3, w.z);
+          this.effects.explode(this.tmp, 1.2 + Math.random() * 0.6);
+        }
       }
       if (this.dist < UNIT_VIS_DIST && this.pieces.length > 1) {
         this.tracerAcc += dt * Math.min(3 + Math.pow(Math.min(P, A), 0.26), 14) * clamp(pts.length / 55, 0.25, 1);
@@ -385,16 +417,23 @@ export class BoardView {
     }
 
     for (const e of events) {
-      if (e.type === 'sectorWon') {
-        // Victory burst across the captured territory.
-        const tid = this.board.conquest[e.sector];
-        const t = this.board.territories.find(q => q.id === tid);
+      if (e.type === 'territoryWon') {
+        const t = this.board.territories.find(q => q.id === e.tid);
         if (t) {
           for (let i = 0; i < 8; i++) {
             const w = gridToWorld(t.cx + (Math.random() - 0.5) * 30, t.cy + (Math.random() - 0.5) * 30);
             this.tmp.set(w.x, 0.4, w.z);
             this.effects.explode(this.tmp, 1.4 + Math.random());
           }
+        }
+      } else if (e.type === 'nationFell') {
+        const n = this.board.nations[e.nation];
+        for (const tid of n.territories) {
+          const t = this.board.territories.find(q => q.id === tid);
+          if (!t) continue;
+          const w = gridToWorld(t.cx, t.cy);
+          this.tmp.set(w.x, 0.4, w.z);
+          this.effects.explode(this.tmp, 2.2);
         }
       }
     }
@@ -421,20 +460,20 @@ export class BoardView {
     this.renderer.render(this.scene, this.camera);
   }
 
-  private updatePieces(gs: GameState, pts: { x: number; y: number }[], dt: number): void {
-    const show = this.dist < UNIT_VIS_DIST && pts.length > 0;
+  private updatePieces(gs: GameState, pts: { x: number; y: number }[], hot: FrontInfo | null, dt: number): void {
+    const show = this.dist < UNIT_VIS_DIST && pts.length > 0 && hot !== null;
     // Desired piece counts: sqrt-scaled armies, capped for phone perf, and
     // squeezed down when the seam shrinks to a small pocket.
     const room = show ? clamp(pts.length / 55, 0.3, 1) : 0;
     const want: { friendly: boolean; line: number }[] = [];
-    if (show) {
+    if (show && hot) {
       const caps = [34, 12, 8, 12, 6, 3, 4, 0];
       for (let i = 0; i < LINES.length; i++) {
         const n = Math.round(Math.min(caps[i], Math.sqrt(gs.lines[i].army) * (i === 0 ? 1.6 : 0.8)) * room);
         for (let k = 0; k < n; k++) want.push({ friendly: true, line: i });
       }
-      const A = adversaryStrength(gs.sector);
-      const en = Math.round(Math.min(48, 5 * Math.pow(A, 0.24)) * room);
+      // Defenders scale with the remaining garrison; a breaking garrison thins out.
+      const en = Math.round(Math.min(48, 5 * Math.pow(Math.max(hot.garrison, 2), 0.24)) * room);
       for (let k = 0; k < en; k++) want.push({ friendly: false, line: k % ENEMY_MODELS.length });
     }
 
@@ -461,13 +500,13 @@ export class BoardView {
           mesh, slot: i, ord: w.friendly ? fi++ : ei++, friendly: w.friendly, line: w.line,
           x: 0, z: 0, tx: 0, tz: 0, phase: Math.random() * Math.PI * 2
         });
-        this.assignSlot(this.pieces[i], pts, gs, true);
+        this.assignSlot(this.pieces[i], pts, gs, hot, true);
       }
     }
 
     // March pieces toward their formation slots along the seam.
     for (const p of this.pieces) {
-      this.assignSlot(p, pts, gs, false);
+      this.assignSlot(p, pts, gs, hot, false);
       const dx = p.tx - p.x, dz = p.tz - p.z;
       const d = Math.hypot(dx, dz);
       if (d > 0.05) {
@@ -487,8 +526,8 @@ export class BoardView {
     }
   }
 
-  private assignSlot(p: Piece, pts: { x: number; y: number }[], gs: GameState, snap: boolean): void {
-    if (pts.length === 0) return;
+  private assignSlot(p: Piece, pts: { x: number; y: number }[], gs: GameState, hot: FrontInfo | null, snap: boolean): void {
+    if (pts.length === 0 || !hot) return;
     // Spread pieces along the whole seam with a stride, wrapping into deeper
     // ranks when the faction outnumbers the seam's slots. Each faction spreads
     // independently so both sides line the entire front.
@@ -502,7 +541,7 @@ export class BoardView {
     let nx = -(next.y - anchor.y), ny = next.x - anchor.x;
     const nl = Math.hypot(nx, ny) || 1;
     nx /= nl; ny /= nl;
-    const field = depthField(this.board, gs.sector);
+    const field = depthField(this.board, hot.tid, new Set(gs.owned), gs.captureStamp);
     if (field) {
       const k0 = Math.round(anchor.y) * GRID_W + Math.round(anchor.x);
       const k1 = Math.round(anchor.y + ny * 5) * GRID_W + Math.round(anchor.x + nx * 5);
