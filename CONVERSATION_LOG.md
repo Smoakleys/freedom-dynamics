@@ -229,3 +229,8 @@
   units tiny and absent strategically, money centered, and the default drawer
   fits five automated classes without the R&D panel. Deployment remains; this
   does not close the broader product backlog.
+- Rejection-recovery checkpoint deployed. Source commit `a7c7137` pushed to
+  `main`; exact production commit `f1f6dd8` force-pushed to `gh-pages`.
+  Authenticated Pages status reported the exact deploy commit built. A
+  cache-busted request to the public `index.html` returned the expected new
+  `index-BlYRmRLD.js` and `index-DcUIU8zD.css`, so the live game is verified.

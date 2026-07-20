@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-20 ~00:03 (rejection-pass local gate green; deploy pending)*
+*Last update: 2026-07-20 ~00:07 (rejection-pass deployed and live-verified)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -67,7 +67,13 @@ token from `git credential fill`).
   collapsed by default. Automated lines compress BUY + DIRECT into one 56px
   summary row (five routine lines fit in the phone drawer); manual lines retain
   expanded teaching controls. This passes the specified checkpoint, not the
-  entire product backlog. Deployment is next.
+  entire product backlog.
+- **DEPLOYED + VERIFIED (00:07):** source commit `a7c7137` is on `main`;
+  production commit `f1f6dd8` is on `gh-pages`. Authenticated GitHub Pages
+  status reports that exact commit `built`, and a cache-busted public
+  `index.html` returned `assets/index-BlYRmRLD.js` and
+  `assets/index-DcUIU8zD.css`. This rejection-recovery checkpoint is live at
+  https://smoakleys.github.io/freedom-dynamics/.
 - Living War v0.4b + five fork-review rounds: nations continent (~9 nations,
   free-form multi-front conquest), overrun capture (+60s hold), nation-fall
   final waves (red-alert HUD, camera cut), territorial rent, arms exports,
