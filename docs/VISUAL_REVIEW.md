@@ -24,8 +24,20 @@ premium board game / Polytopia-clean — never busy, never procedural-looking.
 ## Known Bridger visual rules (violate = instant rejection)
 - Units are world objects: FIXED world scale, invisible when zoomed out.
   Map symbology (labels, arrows, flags) may scale; units never.
+- Units must remain substantially smaller than territory/front symbology at
+  close zoom; a battle should read as movement on a board, not stacked tokens.
+- Borders must be genuinely shared smooth topology: one physical edge, reused
+  by both neighboring fills and stroked once. Independent softened grid traces,
+  doubled outlines, cracks, and black slivers fail the gate.
 - True fog of war: unexplored nations don't exist on the map (open sea).
 - Ownership readable in one glance: gold = yours, cold hues = each nation.
 - No camera drift while the player is watching; their touch always wins.
+- Mobile map control is a visual-quality requirement: one-finger pan follows
+  the finger, pinch zoom keeps its focal point, the page never drifts sideways,
+  and explicit zoom/focus controls stay reachable without obscuring the fight.
+- Money owns the top-center anchor. Status must fit the side columns without
+  clipping; far, mid, and close screenshots must all prove this geometry.
+- Judge the whole composition for clutter and hierarchy, not only the map.
+  Dense panels, redundant decoration, and always-on effects must earn space.
 - Mood boards/AI frames are for DIRECTION only; approval requires
   code-rendered output (he judges implementations, not vibes).

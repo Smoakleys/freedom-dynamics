@@ -148,3 +148,33 @@
   production build. The next visual work should respond to Bridger's direct
   reaction to the live far/mid/close ladder, with hatch strength and close-unit
   size already recorded as the two intentional taste-level tuning knobs.
+- Bridger's direct live verdict: units are still far too large; borders do not
+  look genuinely vectorized; the map feels thrown together; the overall UI is
+  messy and visually clunky; money should be centered at the top; mobile map
+  controls work poorly. He raised the quality bar for the entire composition
+  and invited only specific preference questions. Agent accepted this as a
+  rejection of the current polish rather than a small tweak, created root
+  `AGENTS.md` with the durable standard/continuity/control rules, and began a
+  mobile live audit before the next implementation pass.
+- Premium redo implemented after that rejection. The map painter now derives
+  watertight shared-edge spline topology and strokes each physical border once;
+  the first independent-contour attempt was rejected during review because it
+  created black slivers, then replaced rather than papered over. Contested
+  hatch noise was removed. Units, shadows, flight heights, and formation spread
+  were materially reduced. UI was reorganized around centered top money,
+  compact left/right status, a slimmer ticker, flatter/denser Engineering Corps
+  and production cards, and explicit map controls. Mobile gestures now use
+  correct camera math: one-finger pan follows the finger, pinch and wheel zoom
+  around their focal point, pinch cannot become a false map tap, and zoom/focus
+  buttons provide reliable fallback control. Horizontal overflow and WebGL/DOM
+  stacking are explicitly constrained.
+- Exact-build gate is green: production build, all 18 Vitest checks, and all 23
+  Playwright checks pass with zero console errors. New E2E coverage proves
+  visible mobile controls, zoom altitude changes, pan direction, no horizontal
+  viewport drift, and centered far/mid/close HUD geometry. Fresh rapid and full
+  phone screenshots are in `test/artifacts/`. Root `AGENTS.md` now makes the
+  continuity cadence, higher visual bar, smaller units, shared smooth borders,
+  centered money, mobile-map standard, and specific-question policy durable.
+  Deployment is the next action; the unanswered taste question is whether the
+  current slim always-visible LIVE ticker should eventually collapse to an
+  event-only badge.

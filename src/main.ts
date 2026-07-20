@@ -21,6 +21,9 @@ const ui = new UI(gs);
 ui.board = board;
 ui.chyron.board = board;
 const battlefield = new BoardView(document.getElementById('battle-canvas') as HTMLCanvasElement, gs, board);
+document.getElementById('map-zoom-in')?.addEventListener('click', () => battlefield.zoomIn());
+document.getElementById('map-zoom-out')?.addEventListener('click', () => battlefield.zoomOut());
+document.getElementById('map-focus')?.addEventListener('click', () => battlefield.focusBattle());
 
 // Quartermaster's hands: SEND HERE flags and callable strikes.
 ui.onArmSend = (line) => {
@@ -60,7 +63,7 @@ function hudInfo(): { title: string; sub: string; pct: number; label: string } {
       title: `${n.name.toUpperCase()} — FINAL OFFENSIVE`,
       sub: `REPEL THE WAVE · ${Math.round((gs.wave.power / Math.max(gs.wave.initial, 1)) * 100)}% REMAINING`,
       pct,
-      label: `EMPIRE — ${held}/${total} TERRITORIES · ${fronts.length} FRONTS`
+      label: `${held}/${total} HELD`
     };
   }
   const hot = fronts.length > 0 ? fronts.reduce((a, b) => (b.committed > a.committed ? b : a)) : null;
@@ -70,7 +73,7 @@ function hudInfo(): { title: string; sub: string; pct: number; label: string } {
     title: t ? t.name.toUpperCase() : 'ALL QUIET',
     sub: t && nation ? `${fronts.length} FRONTS ACTIVE · vs ${nation.adversaryName.toUpperCase()}` : 'THE CONTINENT AWAITS',
     pct,
-    label: `EMPIRE — ${held}/${total} TERRITORIES · ${gs.territoriesWonTotal} ANNEXED`
+    label: `${held}/${total} HELD`
   };
 }
 

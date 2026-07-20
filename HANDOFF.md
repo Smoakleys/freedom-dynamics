@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-19 ~16:50 (Bold Board zoom ladder deployed and live-verified)*
+*Last update: 2026-07-19 ~19:39 (premium UI/map/control redo gate green; deployment next)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -21,7 +21,7 @@ token from `git credential fill`).
 - Node lives at `C:\Users\bhump\tools\node-v24.18.0-win-x64` (NOT on PATH —
   prefix it). Python via `py -3.12` (has playwright, PIL, numpy, gdown).
 - `npm run build` (tsc + vite) → `npm test` (18 vitest sim tests incl. balance
-  harness) → `py -3.12 test/e2e.py` (16 assertions vs built dist; writes
+  harness) → `py -3.12 test/e2e.py` (23 assertions vs built dist; writes
   screenshots to test/artifacts/e2e_{far,mid,close}.png).
 - Visual change? → fork-Fable harsh review of the three artifacts (see gate).
 - Deploy: copy dist/* + .nojekyll into a temp dir, git init -b gh-pages,
@@ -36,12 +36,13 @@ token from `git credential fill`).
   armor1/2, retool1/2, thunderclap, skyfall, weather, mech); callable strikes
   (tap-to-target, cooldowns); per-line SEND HERE routing flags; kitbashed Mech
   line (research-gated line index 8); sprite label layer; cold-nation palettes
-  vs gold empire; contested = cold fill + gold hatch + dashed ring; pickets at
+  vs gold empire; contested = flat magenta action field; pickets at
   every front + hold-phase remnants (war reads two-sided everywhere); streaming
   rear-spawn reinforcements; convoys; conquest gold shockwaves; momentum
-  arrows (strategic-only, drift-animated); onboarding toasts; mobile zoom
-  overhaul (Safari pinch-hijack killed, pinch exp 1.35, two-finger pan,
-  double-tap zoom toggle); FIXED-world-scale units (invisible at altitude);
+  arrows (strategic-only, drift-animated); onboarding toasts; mobile map
+  controls with focal pinch zoom, one-finger follow-the-finger pan, explicit
+  zoom/focus buttons, and double-tap zoom toggle; much smaller fixed-world-scale
+  units (invisible at altitude);
   TRUE fog of war (non-bordering nations render as open sea).
 - Balance: garrison = 30·11^(ring-1); conquest decelerates (first nation in
   minutes, ~6/8 nations by simulated h9, deep rings gate for days).
@@ -138,6 +139,44 @@ questions; NO AI mood images — code renders only.
   to reference the expected new bundle `assets/index-CJlqyRRo.js`. This visual
   overhaul checkpoint is complete and live. Resume from direct Bridger visual
   feedback; do not reopen the discarded broad style branches unless requested.
+- 2026-07-19 ~17:05 DIRECT LIVE FEEDBACK / NEW AUTHORITY: Bridger rejected the
+  deployed polish level: **units must be way smaller; borders do not read as
+  truly vectorized; the map feels thrown together; UI is messy/clunky; money
+  must move to the top center; mobile map controls do not work well.** He wants
+  a cleaner, clearer UI and materially higher standards across the whole
+  composition. He explicitly welcomes questions only when they are specific.
+  This supersedes the previous self-review pass. Created root `AGENTS.md` so
+  these continuity, visual-standard, mobile-control, and collaboration rules
+  are automatically durable for future agents. Current pass begins with a live
+  mobile/UI/control audit, then implements the four concrete corrections and
+  re-runs the full visual gate. Continue updating this file and the log at each
+  milestone.
+- 2026-07-19 ~19:39 IMPLEMENTATION MILESTONE / GATE GREEN: Replaced the prior
+  independently smoothed territory outlines with a shared-edge topology
+  renderer: each physical boundary is built once, simplified, spline-sampled,
+  reused by both neighboring fills, and stroked once. This removed doubled
+  seams, raster-grid character, and the black slivers caught in the first
+  rewrite attempt. Contested land is now a quiet flat magenta instead of noisy
+  hatch. Unit targets, model scales, shadows, flyer heights, and formation
+  jitter were reduced substantially (roughly half the previous visual mass).
+  The HUD is a clean three-column composition with money fixed at top center,
+  compact title/adversary at left, and held-territory progress at right. The
+  ticker, drawer, Engineering Corps panel, production cards, and controls were
+  flattened and compacted. Mobile input now uses camera-derived world-per-pixel
+  movement, correct follow-the-finger direction, focal pinch/wheel zoom,
+  pinch-safe tap suppression, and explicit zoom/focus controls. Horizontal
+  overflow is locked and battle UI has an explicit isolated layer order above
+  WebGL. Root `AGENTS.md` permanently records these standards and the required
+  continuity cadence.
+  Verification on the exact build: production build PASS; Vitest 18/18 PASS;
+  Playwright 23/23 PASS (including zoom buttons, one-finger pan direction,
+  horizontal viewport stability, far/mid/close HUD centering, conquest, and
+  zero console errors). Fresh rapid and full far/mid/close phone evidence is in
+  `test/artifacts/`. A headless WebGL screenshot occasionally omitted part of a
+  DOM layer while exact bounding-box assertions and the real in-app browser
+  remained correct; explicit battle layer order was added anyway and this
+  capture-engine quirk is documented rather than hidden. No app-layout failure
+  remains. Source/deploy commits and live hash verification are next.
 - Warm signal so far: he picked "A — Vector-crisp" (flat fills, uniform ~2px
   ink borders, zero texture) over soft-premium and flat-plates, but said
   "nothing is stable".

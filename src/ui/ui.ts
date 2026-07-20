@@ -55,14 +55,20 @@ export class UI {
             <div class="day-label" id="hud-day">DAY 1</div>
             <div class="adversary" id="hud-adv">vs THE ADVERSARY</div>
           </div>
-          <div class="hud-right">
+          <div class="hud-money">
             <div class="funds" id="hud-funds">$0</div>
             <div class="funds-label" id="hud-funds-label">OPERATING FUNDS</div>
           </div>
+          <div class="hud-right">
+            <div id="front-label">FRONT LINE</div>
+            <div id="front-bar"><div id="front-fill"></div></div>
+          </div>
         </div>
-        <div id="front-bar-wrap">
-          <div id="front-bar"><div id="front-fill"></div></div>
-          <div id="front-label">FRONT LINE</div>
+        <div id="map-tools" aria-label="Map controls">
+          <button id="map-zoom-out" aria-label="Zoom out">&minus;</button>
+          <button id="map-focus" aria-label="Focus active front">&#9678;</button>
+          <button id="map-zoom-in" aria-label="Zoom in">+</button>
+          <span>DRAG · PINCH</span>
         </div>
         <div id="strike-bar"></div>
         <div id="chyron">
@@ -355,7 +361,7 @@ export class UI {
     const gs = this.gs;
     this.fundsEl.textContent = fmtMoney(gs.funds);
     const lbl = document.getElementById('hud-funds-label');
-    if (lbl) lbl.textContent = gs.rentPerSec > 0.5 ? `FUNDS · RENT +${fmtMoney(gs.rentPerSec)}/S` : 'OPERATING FUNDS';
+    if (lbl) lbl.textContent = gs.rentPerSec > 0.5 ? `RENT +${fmtMoney(gs.rentPerSec)}/S` : 'AVAILABLE CASH';
     if (info) {
       this.dayEl.textContent = info.title;
       this.advEl.textContent = info.sub;

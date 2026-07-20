@@ -16,6 +16,22 @@ def check(name, cond, detail=""):
     if not cond:
         failures.append(name)
 
+def check_hud_geometry(page, tier):
+    geometry = page.evaluate("""() => {
+        const hud = document.querySelector('#war-hud').getBoundingClientRect();
+        const money = document.querySelector('.hud-money').getBoundingClientRect();
+        const left = document.querySelector('.hud-left').getBoundingClientRect();
+        const right = document.querySelector('.hud-right').getBoundingClientRect();
+        return {vw: innerWidth, hud: {x: hud.x, right: hud.right},
+                moneyCenter: money.x + money.width / 2,
+                left: {x: left.x, right: left.right}, right: {x: right.x, right: right.right}};
+    }""")
+    stable = (abs(geometry["hud"]["x"]) < 1 and
+              abs(geometry["hud"]["right"] - geometry["vw"]) < 1 and
+              abs(geometry["moneyCenter"] - geometry["vw"] / 2) < 1 and
+              geometry["left"]["x"] >= 0 and geometry["right"]["right"] <= geometry["vw"])
+    check(f"visual: {tier} HUD stays centered", stable, str(geometry))
+
 server = subprocess.Popen([sys.executable, "-m", "http.server", "8199", "--bind", "127.0.0.1"],
                           cwd=DIST, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(1.5)
@@ -99,6 +115,23 @@ try:
         check("strike: button present", strike is not None)
         box = page.query_selector("#battle-canvas").bounding_box()
         cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        check("map: explicit mobile controls visible", page.query_selector("#map-tools").is_visible())
+        view0 = page.evaluate("() => ({d: window.__fd.dist, x: window.__fd.focus.x, z: window.__fd.focus.y})")
+        page.click("#map-zoom-in")
+        time.sleep(0.2)
+        view1 = page.evaluate("() => ({d: window.__fd.dist, x: window.__fd.focus.x, z: window.__fd.focus.y})")
+        page.click("#map-zoom-out")
+        time.sleep(0.2)
+        view2 = page.evaluate("() => ({d: window.__fd.dist, x: window.__fd.focus.x, z: window.__fd.focus.y})")
+        check("map: zoom buttons change altitude", view1["d"] < view0["d"] and view2["d"] > view1["d"])
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx + 32, cy + 24, steps=5)
+        page.mouse.up()
+        view3 = page.evaluate("() => ({x: window.__fd.focus.x, z: window.__fd.focus.y})")
+        check("map: one-finger drag follows the gesture", view3["x"] < view2["x"] and view3["z"] < view2["z"])
+        page.click("#map-focus")
+        time.sleep(0.2)
         if strike and not strike.is_disabled():
             strike.click()
             time.sleep(0.3)
@@ -122,6 +155,12 @@ try:
             page.evaluate("() => window.dispatchEvent(new Event('pagehide'))")
             tgt = page.evaluate("() => JSON.parse(localStorage.getItem('freedom-dynamics-save-v1')).lines[0].target")
             check("routing: SEND HERE sets a target", tgt is not None, str(tgt))
+        mobile_layout = page.evaluate("() => ({x: window.scrollX, w: document.documentElement.scrollWidth, vw: window.innerWidth})")
+        check(
+            "mobile: viewport never drifts horizontally",
+            mobile_layout["x"] == 0 and mobile_layout["w"] <= mobile_layout["vw"],
+            str(mobile_layout),
+        )
 
         # Conquest progresses over time.
         t0 = page.evaluate("() => JSON.parse(localStorage.getItem('freedom-dynamics-save-v1')).owned.length")
@@ -134,16 +173,19 @@ try:
         for _ in range(11):
             page.mouse.move(cx, cy); page.mouse.wheel(0, 120); time.sleep(0.05)
         time.sleep(2)
+        check_hud_geometry(page, "far")
         page.screenshot(path=os.path.join(ART, "e2e_far.png"))
         # Strategic → operational: stop near the label/detail transition so
         # the visual gate actually exercises the designed mid zoom tier.
         for _ in range(7):
             page.mouse.move(cx, cy); page.mouse.wheel(0, -120); time.sleep(0.05)
         time.sleep(11)
+        check_hud_geometry(page, "mid")
         page.screenshot(path=os.path.join(ART, "e2e_mid.png"))
         for _ in range(9):
             page.mouse.move(cx, cy); page.mouse.wheel(0, -120); time.sleep(0.05)
         time.sleep(11)
+        check_hud_geometry(page, "close")
         page.screenshot(path=os.path.join(ART, "e2e_close.png"))
         check("midgame: no console errors", len(errors2) == 0, "; ".join(errors2[:3]))
         ctx.close()

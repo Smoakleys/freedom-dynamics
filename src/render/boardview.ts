@@ -66,7 +66,9 @@ export class BoardView {
   private pointers = new Map<number, { x: number; y: number }>();
   private pinchDist = 0;
   private pinchMid = { x: 0, y: 0 };
+  private gestureHadPinch = false;
   private lastTap = { t: -999, x: 0, y: 0 };
+  private currentGs: GameState;
 
   private skirmishAcc = 0;
   private tracerAcc = 0;
@@ -90,6 +92,7 @@ export class BoardView {
 
   constructor(private canvas: HTMLCanvasElement, gs: GameState, board: Board) {
     this.board = board;
+    this.currentGs = gs;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setClearColor(0x22303a);
@@ -135,7 +138,7 @@ export class BoardView {
     shCtx.fillRect(0, 0, 64, 64);
     const shTex = new THREE.CanvasTexture(shCv);
     this.shadowMat = new THREE.MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false });
-    this.shadowGeo = new THREE.PlaneGeometry(1.6, 1.6);
+    this.shadowGeo = new THREE.PlaneGeometry(0.85, 0.85);
 
     this.effects = new Effects(this.scene);
     this.loadModels();
@@ -173,7 +176,7 @@ export class BoardView {
     add(new THREE.BoxGeometry(0.5, 0.4, 0.9), body, 0.95, 1.45, 0);
     const wrap = new THREE.Group();
     const box = new THREE.Box3().setFromObject(g);
-    const s = 2.8 / Math.max(box.max.y - box.min.y, 0.001);
+    const s = 1.55 / Math.max(box.max.y - box.min.y, 0.001);
     g.scale.setScalar(s);
     g.position.y = -box.min.y * s;
     wrap.add(g);
@@ -187,9 +190,9 @@ export class BoardView {
     // Per-model target sizes — a deliberate scale hierarchy (soldier < truck <
     // tank), aircraft small so they read as air cover, mech towers over all.
     const SIZES: Record<string, number> = {
-      Soldier: 1.05, Drone: 1.0, Jet: 1.5, Helicopter: 1.9,
-      Jeep: 1.8, ScoutCar: 2.0, Ambulance: 1.9,
-      LightTank: 2.2, SuperTank: 2.5, Howitzer: 1.8, MissileLauncher: 2.0
+      Soldier: 0.48, Drone: 0.5, Jet: 0.78, Helicopter: 0.9,
+      Jeep: 0.85, ScoutCar: 0.95, Ambulance: 0.9,
+      LightTank: 1.08, SuperTank: 1.2, Howitzer: 0.88, MissileLauncher: 0.98
     };
     for (const name of names) {
       loader.load(`./models/${name}.glb`, (gltf) => {
@@ -248,8 +251,8 @@ export class BoardView {
   private fallbackPiece(friendly: boolean): THREE.Object3D {
     const g = new THREE.Group();
     const mat = new THREE.MeshLambertMaterial({ color: friendly ? GOLD : SLATE });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 1.3), mat);
-    body.position.y = 0.45;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.28, 0.7), mat);
+    body.position.y = 0.22;
     g.add(body);
     return g;
   }
@@ -308,15 +311,16 @@ export class BoardView {
     for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) {
       document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
     }
-    el.addEventListener('touchstart', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
     el.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
-    document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+    el.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
     el.addEventListener('pointerdown', (e) => {
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.tapDownAt = { x: e.clientX, y: e.clientY };
-      el.setPointerCapture(e.pointerId);
+      try { el.setPointerCapture(e.pointerId); } catch { /* synthetic/legacy touch */ }
       this.lastTouch = this.time;
       if (this.pointers.size === 2) {
+        this.gestureHadPinch = true;
         const [a, b] = [...this.pointers.values()];
         this.pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
         this.pinchMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -328,23 +332,32 @@ export class BoardView {
       this.lastTouch = this.time;
       if (this.pointers.size === 1) {
         const dx = e.clientX - p.x, dy = e.clientY - p.y;
-        const scale = this.dist / el.clientHeight * 1.35;
-        this.focus.y += dy * scale;   // screen up = board north (-z)
+        const scale = this.worldPerPixel();
+        // The map follows the finger. Camera focus moves opposite the drag.
+        this.focus.y -= dy * scale;
         this.focus.x -= dx * scale;
         this.clampFocus();
       } else if (this.pointers.size === 2) {
+        const prevMid = this.pinchMid;
+        const anchor = this.pickWorld(prevMid.x, prevMid.y);
         p.x = e.clientX; p.y = e.clientY;
         const [a, b] = [...this.pointers.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         if (this.pinchDist > 0) {
-          // Exponent >1 makes the zoom feel responsive instead of syrupy.
-          this.dist = clamp(this.dist * Math.pow(this.pinchDist / d, 1.35), MIN_DIST, MAX_DIST);
+          const oldDist = this.dist;
+          const nextDist = clamp(oldDist * Math.pow(this.pinchDist / Math.max(d, 1), 1.04), MIN_DIST, MAX_DIST);
+          const ratio = nextDist / oldDist;
+          if (anchor) {
+            this.focus.x = anchor.x + (this.focus.x - anchor.x) * ratio;
+            this.focus.y = anchor.z + (this.focus.y - anchor.z) * ratio;
+          }
+          this.dist = nextDist;
           this.distTarget = null;
-          // Two-finger pan: follow the pinch midpoint like a real map.
-          const scale = this.dist / el.clientHeight * 1.35;
-          this.focus.y += (mid.y - this.pinchMid.y) * scale;
-          this.focus.x -= (mid.x - this.pinchMid.x) * scale;
+          // Midpoint motion pans at the same physical scale as one finger.
+          const scale = this.worldPerPixel(nextDist);
+          this.focus.y -= (mid.y - prevMid.y) * scale;
+          this.focus.x -= (mid.x - prevMid.x) * scale;
           this.clampFocus();
         }
         this.pinchDist = d;
@@ -356,7 +369,7 @@ export class BoardView {
     const up = (e: PointerEvent) => {
       const moved = Math.hypot(e.clientX - this.tapDownAt.x, e.clientY - this.tapDownAt.y);
       // A short, unmoved press with an armed action = a map tap.
-      if (this.pendingTap && this.pointers.size === 1) {
+      if (!this.gestureHadPinch && this.pendingTap && this.pointers.size === 1) {
         if (moved < 12) {
           const w = this.pickWorld(e.clientX, e.clientY);
           if (w) {
@@ -365,14 +378,14 @@ export class BoardView {
             cb(w);
           }
         }
-      } else if (this.pointers.size === 1 && moved < 14) {
+      } else if (!this.gestureHadPinch && this.pointers.size === 1 && moved < 14) {
         // Double-tap: quick zoom toggle between battle and board altitude.
         const now = performance.now();
         const near = Math.hypot(e.clientX - this.lastTap.x, e.clientY - this.lastTap.y) < 40;
         if (now - this.lastTap.t < 320 && near) {
           const w = this.pickWorld(e.clientX, e.clientY);
           if (w && this.dist > 40) { this.focus.set(w.x, w.z); this.clampFocus(); }
-          this.distTarget = this.dist > 40 ? 18 : 85;
+          this.distTarget = this.dist > 40 ? 24 : 92;
           this.lastTap.t = -999;
         } else {
           this.lastTap = { t: now, x: e.clientX, y: e.clientY };
@@ -380,14 +393,59 @@ export class BoardView {
       }
       this.pointers.delete(e.pointerId);
       this.pinchDist = 0;
+      if (this.pointers.size === 0) this.gestureHadPinch = false;
     };
     el.addEventListener('pointerup', up);
-    el.addEventListener('pointercancel', (e) => { this.pointers.delete(e.pointerId); this.pinchDist = 0; });
+    el.addEventListener('pointercancel', (e) => {
+      this.pointers.delete(e.pointerId);
+      this.pinchDist = 0;
+      if (this.pointers.size === 0) this.gestureHadPinch = false;
+    });
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.lastTouch = this.time;
-      this.dist = clamp(this.dist * (1 + Math.sign(e.deltaY) * 0.12), MIN_DIST, MAX_DIST);
+      const factor = Math.exp(clamp(e.deltaY, -160, 160) * 0.00125);
+      this.setZoomAt(e.clientX, e.clientY, this.dist * factor);
     }, { passive: false });
+  }
+
+  private worldPerPixel(distance = this.dist): number {
+    return (2 * distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5))) /
+      Math.max(this.canvas.clientHeight, 1);
+  }
+
+  private setZoomAt(clientX: number, clientY: number, requested: number): void {
+    const anchor = this.pickWorld(clientX, clientY);
+    const oldDist = this.dist;
+    const nextDist = clamp(requested, MIN_DIST, MAX_DIST);
+    if (anchor && oldDist > 0) {
+      const ratio = nextDist / oldDist;
+      this.focus.x = anchor.x + (this.focus.x - anchor.x) * ratio;
+      this.focus.y = anchor.z + (this.focus.y - anchor.z) * ratio;
+    }
+    this.dist = nextDist;
+    this.distTarget = null;
+    this.clampFocus();
+  }
+
+  zoomIn(): void {
+    const r = this.canvas.getBoundingClientRect();
+    this.lastTouch = this.time;
+    this.setZoomAt(r.left + r.width * 0.5, r.top + r.height * 0.5, this.dist * 0.72);
+  }
+
+  zoomOut(): void {
+    const r = this.canvas.getBoundingClientRect();
+    this.lastTouch = this.time;
+    this.setZoomAt(r.left + r.width * 0.5, r.top + r.height * 0.5, this.dist * 1.38);
+  }
+
+  focusBattle(): void {
+    const target = this.contestedCenter(this.currentGs);
+    this.focus.set(target.x, target.z);
+    this.distTarget = Math.min(this.dist, 46);
+    this.lastTouch = this.time;
+    this.clampFocus();
   }
 
   // Public: arm a one-shot map tap (strike targeting, SEND HERE placement).
@@ -729,6 +787,7 @@ export class BoardView {
   }
 
   update(gs: GameState, dt: number, events: GameEvent[], time: number): void {
+    this.currentGs = gs;
     this.time = time;
     const owned = new Set(gs.owned);
     const fronts = frontInfos(this.board, gs);
@@ -1078,7 +1137,7 @@ export class BoardView {
         p.mesh.rotation.y = Math.atan2(dx, dz) + Math.sin(p.phase * 7.3) * 0.45;
       }
       const fly = p.friendly ? (p.line === 2 || p.line === 5) : p.line === 2;
-      const alt = !fly ? 0 : p.friendly && p.line === 2 ? 2.4 : p.friendly ? 3.0 : 1.5;
+      const alt = !fly ? 0 : p.friendly && p.line === 2 ? 1.15 : p.friendly ? 1.55 : 0.9;
       const bob = fly ? alt + Math.sin(this.time * 2 + p.phase) * 0.25 : 0;
       p.mesh.position.set(p.x, bob, p.z);
       // Flyers keep a DETACHED ground shadow — without it altitude is
@@ -1087,7 +1146,7 @@ export class BoardView {
       if (shadow) shadow.position.y = -bob + 0.06;
       // Units are FIXED world scale — they live in the world, not the UI.
       // Zoom out and they genuinely shrink away (Bridger's rule).
-      const jitterScale = 0.88 + ((p.slot * 31) % 27) / 100;
+      const jitterScale = 0.74 + ((p.slot * 31) % 19) / 100;
       p.mesh.scale.setScalar(jitterScale);
     }
   }
