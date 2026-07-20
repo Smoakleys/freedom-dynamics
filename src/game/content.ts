@@ -12,8 +12,30 @@ export interface LineDef {
   batchTime: number;       // seconds per delivery batch at 1x speed
   revenue: number;         // $ per unit delivered
   power: number;           // battlefield power per unit
+  combat: CombatProfile;
   hire: HireDef;
   research?: string;       // locked until this research completes
+}
+
+export type CombatRole = 'infantry' | 'support' | 'recon' | 'armor' | 'artillery' | 'air' | 'missile' | 'orbital' | 'mech';
+
+// Real deterministic combat identity for every fielded product. `damage` is
+// per shot, `fireRate` is shots/sec, and health/armor determine actual losses.
+// The renderer consumes range/speed too, so roles are visible rather than only
+// existing in a spreadsheet.
+export interface CombatProfile {
+  role: CombatRole;
+  roleLabel: string;
+  maxHealth: number;
+  damage: number;
+  fireRate: number;
+  range: number;
+  speed: number;
+  armor: number;            // 0..0.75 damage reduction
+  exposure: number;         // enemy targeting weight
+  vsGarrison: number;
+  vsWave: number;
+  capture: number;          // occupation ability; 0 cannot hold ground alone
 }
 
 export interface HireDef {
@@ -71,6 +93,7 @@ export const LINES: LineDef[] = [
     desc: 'Vintage 1962. Certified pre-owned. Some bayonet damage (from us, earlier).',
     unitName: 'Rifle Squad', unitPlural: 'Rifle Squads',
     baseCost: 4, growth: 1.07, batchTime: 0.6, revenue: 1, power: 1,
+    combat: { role: 'infantry', roleLabel: 'LINE INFANTRY', maxHealth: 1, damage: 1, fireRate: 1, range: 5, speed: 4.2, armor: 0, exposure: 1, vsGarrison: 1, vsWave: 0.9, capture: 1 },
     hire: {
       name: 'Gary', title: 'Retired Supply Sergeant',
       bio: 'Smells like gun oil and grievances. Counts everything twice, trusts nothing once.',
@@ -83,6 +106,7 @@ export const LINES: LineDef[] = [
     desc: 'The seats are now "combat leather". This adds $1.4M per vehicle.',
     unitName: 'Armored Truck', unitPlural: 'Armored Trucks',
     baseCost: 60, growth: 1.15, batchTime: 3, revenue: 60, power: 6,
+    combat: { role: 'support', roleLabel: 'MOBILE SUPPORT', maxHealth: 9, damage: 8, fireRate: 0.75, range: 8, speed: 6.4, armor: 0.12, exposure: 0.7, vsGarrison: 0.7, vsWave: 0.9, capture: 0.3 },
     hire: {
       name: 'Tanner', title: "Congressman's Nephew",
       bio: 'Qualifications: nephew. Currently on his third "gap year" and your payroll.',
@@ -95,6 +119,7 @@ export const LINES: LineDef[] = [
     desc: '"Attritable" is defense-speak for "we get paid again when it explodes."',
     unitName: 'Drone Swarm', unitPlural: 'Drone Swarms',
     baseCost: 720, growth: 1.14, batchTime: 6, revenue: 540, power: 25,
+    combat: { role: 'recon', roleLabel: 'RECON / SPOTTER', maxHealth: 10, damage: 25, fireRate: 1, range: 16, speed: 9.5, armor: 0, exposure: 1.45, vsGarrison: 0.75, vsWave: 1.15, capture: 0 },
     hire: {
       name: 'DroneLord_420', title: 'Defense Influencer',
       bio: 'Monetizing attrition across six platforms. His unboxings are classified.',
@@ -107,6 +132,7 @@ export const LINES: LineDef[] = [
     desc: 'Block IV adds cupholders. Block V adds a second cupholder. Congress is thrilled.',
     unitName: 'Battle Tank', unitPlural: 'Battle Tanks',
     baseCost: 8_640, growth: 1.13, batchTime: 12, revenue: 4_320, power: 100,
+    combat: { role: 'armor', roleLabel: 'BREAKTHROUGH ARMOR', maxHealth: 260, damage: 200, fireRate: 0.5, range: 10, speed: 3.6, armor: 0.45, exposure: 1.3, vsGarrison: 1.35, vsWave: 1.1, capture: 0.65 },
     hire: {
       name: 'Gen. Hardline (Ret.)', title: 'Board Member, 4 Stars',
       bio: 'Retired Tuesday. Joined the board Wednesday. Recused himself from nothing.',
@@ -119,6 +145,7 @@ export const LINES: LineDef[] = [
     desc: 'Flagship product: "Diplomacy" — a 155mm conversation starter.',
     unitName: 'Howitzer Battery', unitPlural: 'Howitzer Batteries',
     baseCost: 103_680, growth: 1.12, batchTime: 24, revenue: 51_840, power: 400,
+    combat: { role: 'artillery', roleLabel: 'SIEGE ARTILLERY', maxHealth: 320, damage: 1600, fireRate: 0.25, range: 30, speed: 1.8, armor: 0.08, exposure: 1.35, vsGarrison: 1.8, vsWave: 0.85, capture: 0 },
     hire: {
       name: 'Bunny Vanderclay', title: 'Lobbyist Emeritus',
       bio: 'Knows a guy. Knows all the guys. Is legally several of the guys.',
@@ -131,6 +158,7 @@ export const LINES: LineDef[] = [
     desc: 'Only $1.7 trillion over budget, which is under budget for us.',
     unitName: 'Strike Fighter', unitPlural: 'Strike Fighters',
     baseCost: 1_244_160, growth: 1.11, batchTime: 96, revenue: 622_080, power: 1_600,
+    combat: { role: 'air', roleLabel: 'AIR SUPERIORITY', maxHealth: 1600, damage: 6400, fireRate: 0.25, range: 48, speed: 14, armor: 0.22, exposure: 0.55, vsGarrison: 1.15, vsWave: 1.65, capture: 0 },
     hire: {
       name: 'Deborah', title: 'Program Manager (Unkillable)',
       bio: 'Has survived 14 cancellations, 9 audits, and one sincere attempt to understand the budget.',
@@ -143,6 +171,7 @@ export const LINES: LineDef[] = [
     desc: 'Nobody knows what it is. It is, however, hypersonic.',
     unitName: 'Hypersonic Asset', unitPlural: 'Hypersonic Assets',
     baseCost: 14_929_920, growth: 1.10, batchTime: 384, revenue: 7_464_960, power: 6_400,
+    combat: { role: 'missile', roleLabel: 'STANDOFF STRIKE', maxHealth: 3200, damage: 25_600, fireRate: 0.25, range: 76, speed: 20, armor: 0.12, exposure: 0.2, vsGarrison: 1.55, vsWave: 1.25, capture: 0 },
     hire: {
       name: 'C.O.M.P.L.Y.', title: 'Compliance AI',
       bio: 'Approves everything instantly. Has never once been asked a follow-up question.',
@@ -155,6 +184,7 @@ export const LINES: LineDef[] = [
     desc: '█████ ███ ██████ from space. Invoice attached.',
     unitName: '[REDACTED]', unitPlural: '[REDACTED]',
     baseCost: 179_159_040, growth: 1.09, batchTime: 1536, revenue: 89_579_520, power: 25_600,
+    combat: { role: 'orbital', roleLabel: 'ORBITAL FIRES', maxHealth: 25_600, damage: 102_400, fireRate: 0.25, range: 999, speed: 0, armor: 0.55, exposure: 0.03, vsGarrison: 2, vsWave: 1.8, capture: 0 },
     hire: {
       name: '██████', title: 'From The Agency',
       bio: "You didn't hire them. They arrived. HR has agreed not to ask.",
@@ -167,6 +197,7 @@ export const LINES: LineDef[] = [
     desc: 'Bipedal logistics platform (armed). OSHA has stopped calling back.',
     unitName: 'Combat Mech', unitPlural: 'Combat Mechs',
     baseCost: 2_149_908_480, growth: 1.09, batchTime: 3072, revenue: 1_074_954_240, power: 102_400,
+    combat: { role: 'mech', roleLabel: 'HEAVY ASSAULT', maxHealth: 409_600, damage: 204_800, fireRate: 0.5, range: 16, speed: 3, armor: 0.62, exposure: 1.8, vsGarrison: 1.55, vsWave: 1.45, capture: 1.2 },
     research: 'mech',
     hire: {
       name: 'STOMP-DAD 9000', title: 'Mech Foreman (Also a Mech)',

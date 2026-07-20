@@ -10,13 +10,11 @@ export const TEX_W = 2048;
 export const TEX_H = 4096;
 const SX = TEX_W / GRID_W;
 const SY = TEX_H / GRID_H;
-const K = TEX_W / 1440;
 
 const SEA = '#10333d';
-const EMPIRE = '#e8b526';
-const CONTESTED = '#a15069';
-const INTERNAL = 'rgba(31, 31, 38, 0.68)';
-const NATIONAL = '#1d2026';
+const EMPIRE = '#d9a92f';
+const HOMELAND = '#f0c54f';
+const CONTESTED = '#a94d61';
 const JEWELS = ['#765287', '#347b60', '#437a9e', '#35766f', '#6c557f', '#4c7493'];
 
 export interface PaintState {
@@ -30,6 +28,7 @@ interface Pt { x: number; y: number }
 interface PhysicalEdge { a: Pt; b: Pt; pair: string }
 interface DirectedEdge { a: Pt; b: Pt }
 interface Chain { points: Pt[]; pair: string; closed: boolean }
+export interface SharedBorderChain { points: { x: number; y: number }[]; pair: string; closed: boolean }
 interface EdgeRef { chain: number; from: string; to: string }
 type Loops = Map<number, Pt[][]>;
 interface Topology { loops: Loops; chains: Chain[] }
@@ -83,14 +82,14 @@ function curvePoints(control: Pt[], closed: boolean): Pt[] {
   if (control.length < 3) return control;
   const out: Pt[] = [{ ...control[0] }];
   const segments = closed ? control.length : control.length - 1;
-  const tension = 0.48;
+  const tension = 0.34;
   for (let i = 0; i < segments; i++) {
     const a = control[closed ? (i - 1 + control.length) % control.length : Math.max(0, i - 1)];
     const b = control[i];
     const c = control[(i + 1) % control.length];
     const d = control[closed ? (i + 2) % control.length : Math.min(control.length - 1, i + 2)];
     const distance = Math.hypot(c.x - b.x, c.y - b.y);
-    const steps = Math.max(2, Math.ceil(distance / 3));
+    const steps = Math.max(3, Math.ceil(distance / 2));
     const m1x = (c.x - a.x) * tension, m1y = (c.y - a.y) * tension;
     const m2x = (d.x - b.x) * tension, m2y = (d.y - b.y) * tension;
     for (let s = 1; s <= steps; s++) {
@@ -253,7 +252,7 @@ function buildTopology(field: Int16Array, epsilon: number): Topology {
 function contours(board: Board): ContourCache {
   const hit = contourCache.get(board);
   if (hit) return hit;
-  const made = { territories: buildTopology(board.labels, 2.2) };
+  const made = { territories: buildTopology(board.labels, 1.45) };
   contourCache.set(board, made);
   return made;
 }
@@ -270,13 +269,11 @@ function pathFor(loops: Pt[][] | undefined): Path2D {
   return path;
 }
 
-function pathForChain(chain: Chain): Path2D {
-  const path = new Path2D();
-  if (chain.points.length === 0) return path;
-  path.moveTo(chain.points[0].x * SX, chain.points[0].y * SY);
-  for (let i = 1; i < chain.points.length; i++) path.lineTo(chain.points[i].x * SX, chain.points[i].y * SY);
-  if (chain.closed) path.closePath();
-  return path;
+// Expose the exact shared spline topology to the WebGL renderer. Fills stay on
+// the texture, but strokes are real screen-stable lines, so zooming in never
+// magnifies a raster border into a heavy black ribbon.
+export function sharedBorderChains(board: Board): readonly SharedBorderChain[] {
+  return contours(board).territories.chains;
 }
 
 function shade(hex: string, amount: number): string {
@@ -285,8 +282,11 @@ function shade(hex: string, amount: number): string {
   return `rgb(${c(16)},${c(8)},${c(0)})`;
 }
 
-function territoryFill(st: PaintState, tid: number, nation: number): string {
-  if (st.owned.has(tid)) return shade(EMPIRE, (tid % 3 - 1) * 3);
+function territoryFill(st: PaintState, tid: number, nation: number, homeNation: number): string {
+  if (st.owned.has(tid)) {
+    const base = nation === homeNation ? HOMELAND : EMPIRE;
+    return shade(base, (tid % 3 - 1) * 3);
+  }
   if (st.contested.has(tid)) return CONTESTED;
   return shade(JEWELS[(nation * 5 + 1) % JEWELS.length], (tid % 3 - 1) * 4);
 }
@@ -300,27 +300,12 @@ export function paintBoard(canvas: HTMLCanvasElement, board: Board, st: PaintSta
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   const cached = contours(board);
-  const territoryById = new Map(board.territories.map(t => [t.id, t]));
 
   for (const t of board.territories) {
     if (!st.visibleNations.has(t.nation)) continue;
     const path = pathFor(cached.territories.loops.get(t.id));
-    ctx.fillStyle = territoryFill(st, t.id, t.nation);
+    ctx.fillStyle = territoryFill(st, t.id, t.nation, board.homeNation);
     ctx.fill(path);
   }
 
-  // Draw each physical border exactly once. National/coast hierarchy uses the
-  // same shared curve as the province fills, so close zoom cannot reveal a
-  // second offset outline.
-  for (const chain of cached.territories.chains) {
-    const [a, b] = chain.pair.split('|').map(Number);
-    const ta = territoryById.get(a), tb = territoryById.get(b);
-    const visibleA = !!ta && st.visibleNations.has(ta.nation);
-    const visibleB = !!tb && st.visibleNations.has(tb.nation);
-    if (!visibleA && !visibleB) continue;
-    const national = !ta || !tb || !visibleA || !visibleB || ta.nation !== tb.nation;
-    ctx.strokeStyle = national ? NATIONAL : INTERNAL;
-    ctx.lineWidth = (national ? 1.7 : 0.62) * K;
-    ctx.stroke(pathForChain(chain));
-  }
 }

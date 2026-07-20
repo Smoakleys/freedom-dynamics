@@ -100,6 +100,7 @@ try:
         check("war: rent shows", "RENT" in page.inner_text("#hud-funds-label").upper())
 
         # R&D: engineers visible, direct a research program.
+        page.click("#rnd-toggle")
         check("rnd: capacity shown", "STAFF" in page.inner_text("#rnd-cap").upper())
         page.click("#rnd-active")
         time.sleep(0.5)
@@ -109,6 +110,7 @@ try:
         time.sleep(0.5)
         active = page.inner_text("#rnd-active")
         check("rnd: program directed", active.startswith("▶"), active)
+        page.click("#rnd-toggle")
 
         # Strike: button exists (thunderclap researched), arm + tap map.
         strike = page.query_selector(".strike-btn")
@@ -120,16 +122,20 @@ try:
         page.click("#map-zoom-in")
         time.sleep(0.2)
         view1 = page.evaluate("() => ({d: window.__fd.dist, x: window.__fd.focus.x, z: window.__fd.focus.y})")
-        page.click("#map-zoom-out")
-        time.sleep(0.2)
-        view2 = page.evaluate("() => ({d: window.__fd.dist, x: window.__fd.focus.x, z: window.__fd.focus.y})")
-        check("map: zoom buttons change altitude", view1["d"] < view0["d"] and view2["d"] > view1["d"])
+        grabbed0 = page.evaluate("([x,y]) => window.__fd.pickWorld(x,y)", [cx, cy])
         page.mouse.move(cx, cy)
         page.mouse.down()
         page.mouse.move(cx + 32, cy + 24, steps=5)
         page.mouse.up()
         view3 = page.evaluate("() => ({x: window.__fd.focus.x, z: window.__fd.focus.y})")
-        check("map: one-finger drag follows the gesture", view3["x"] < view2["x"] and view3["z"] < view2["z"])
+        grabbed1 = page.evaluate("([x,y]) => window.__fd.pickWorld(x,y)", [cx + 32, cy + 24])
+        anchor_error = ((grabbed0["x"] - grabbed1["x"]) ** 2 + (grabbed0["z"] - grabbed1["z"]) ** 2) ** 0.5
+        check("map: one-finger drag preserves the grabbed world point", anchor_error < 0.25,
+              f"anchor error {anchor_error:.3f}, focus {view1} -> {view3}")
+        page.click("#map-zoom-out")
+        time.sleep(0.2)
+        view2 = page.evaluate("() => ({d: window.__fd.dist, x: window.__fd.focus.x, z: window.__fd.focus.y})")
+        check("map: zoom buttons change altitude", view1["d"] < view0["d"] and view2["d"] > view1["d"])
         page.click("#map-focus")
         time.sleep(0.2)
         if strike and not strike.is_disabled():

@@ -6,6 +6,7 @@ import { bindBoard, tick, fastForward } from '../src/game/sim';
 import { warTick, frontInfos, activeFronts, applyStrike, armyPower } from '../src/game/war';
 import { unitPower, devPerSec, engineerCost, availableResearch, lineUnlocked } from '../src/game/economy';
 import { LINES, RESEARCH } from '../src/game/content';
+import { applyFormationDamage, formationCombat, unitCombatStats } from '../src/game/combat';
 import { load, save } from '../src/game/save';
 
 // localStorage stub for node.
@@ -127,6 +128,57 @@ describe('the living war', () => {
   });
 });
 
+describe('class combat', () => {
+  it('gives every fieldable class real, distinct combat stats', () => {
+    const gs = newGame();
+    const profiles = LINES.map((_, i) => unitCombatStats(gs, i));
+    for (const p of profiles) {
+      expect(p.maxHealth).toBeGreaterThan(0);
+      expect(p.damage).toBeGreaterThan(0);
+      expect(p.range).toBeGreaterThan(0);
+      expect(p.effectiveHealth).toBeGreaterThanOrEqual(p.maxHealth);
+    }
+    expect(profiles[3].effectiveHealth).toBeGreaterThan(profiles[0].effectiveHealth);
+    expect(profiles[4].range).toBeGreaterThan(profiles[0].range);
+    expect(profiles[5].speed).toBeGreaterThan(profiles[3].speed);
+  });
+
+  it('damages only classes actually committed to the attacked front', () => {
+    const gs = newGame();
+    gs.lines[0].army = 10;
+    gs.lines[1].army = 10;
+    const allocated = new Array(LINES.length).fill(0);
+    allocated[1] = 10;
+    applyFormationDamage(gs, allocated, 40);
+    expect(gs.lines[0].army).toBe(10);
+    expect(gs.lines[1].army).toBeLessThan(10);
+    expect(gs.stats.damageTaken).toBeGreaterThan(0);
+    expect(gs.stats.unitsLost).toBeGreaterThan(0);
+  });
+
+  it('makes support and recon alter the classes they enable', () => {
+    const gs = newGame();
+    const rifles = new Array(LINES.length).fill(0);
+    rifles[0] = 100;
+    const supported = [...rifles]; supported[1] = 20;
+    expect(formationCombat(gs, supported, 'garrison').contributions[0])
+      .toBeGreaterThan(formationCombat(gs, rifles, 'garrison').contributions[0]);
+
+    const guns = new Array(LINES.length).fill(0); guns[4] = 5;
+    const spotted = [...guns]; spotted[2] = 10;
+    expect(formationCombat(gs, spotted, 'garrison').contributions[4])
+      .toBeGreaterThan(formationCombat(gs, guns, 'garrison').contributions[4]);
+  });
+
+  it('requires occupation-capable units after standoff weapons break a defense', () => {
+    const gs = newGame();
+    const artillery = new Array(LINES.length).fill(0); artillery[4] = 100;
+    const infantry = new Array(LINES.length).fill(0); infantry[0] = 100;
+    expect(formationCombat(gs, artillery, 'garrison').capturePower).toBe(0);
+    expect(formationCombat(gs, infantry, 'garrison').capturePower).toBeGreaterThan(0);
+  });
+});
+
 describe('R&D and strikes', () => {
   it('engineers generate capacity and research completes', () => {
     const { gs, board } = freshWar();
@@ -164,9 +216,11 @@ describe('R&D and strikes', () => {
     const w = gridToWorld(t.cx, t.cy);
     frontInfos(board, gs); // ensure garrisons initialized
     const g0 = gs.garrisons[t.id];
+    const damage0 = gs.stats.damageDealt;
     const ok = applyStrike(board, gs, 'thunderclap', w.x, w.z);
     expect(ok).toBe(true);
     expect(gs.garrisons[t.id]).toBeLessThan(g0);
+    expect(gs.stats.damageDealt).toBeGreaterThan(damage0);
     expect(gs.cooldowns['thunderclap']).toBeGreaterThan(0);
     // Cooldown blocks refire.
     expect(applyStrike(board, gs, 'thunderclap', w.x, w.z)).toBe(false);

@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Board, depthField, frontLine, gridToWorld, GRID_W, BOARD_W, BOARD_H } from './board/gen';
-import { paintBoard } from './board/paint';
+import { paintBoard, sharedBorderChains } from './board/paint';
 import { Effects } from './effects';
 import { LINES, capturedName } from '../game/content';
 import { armyPower, frontInfos, activeFronts, visibleNations, type FrontInfo } from '../game/war';
@@ -14,6 +14,7 @@ import type { GameState, GameEvent } from '../game/state';
 const REVEAL_STEPS = 2;          // conquest steps visible past the contested territory
 const UNIT_VIS_DIST = 48;        // camera distance where unit pieces appear
 const MIN_DIST = 11, MAX_DIST = 125;
+const ZOOM_LEVELS = [18, 30, 48, 76, 112];
 
 // Line index → model file. Missing files fall back to primitive pieces.
 // 'Mech' is kitbashed in code, not loaded from disk.
@@ -60,7 +61,7 @@ export class BoardView {
 
   // Camera state.
   private focus = new THREE.Vector2(0, 0);
-  private dist = 90;
+  private dist = 112;
   private distTarget: number | null = null;
   private lastTouch = -999;
   private pointers = new Map<number, { x: number; y: number }>();
@@ -84,6 +85,7 @@ export class BoardView {
   private nationLabelLayer = new THREE.Group();
   private territoryLabelLayer = new THREE.Group();
   private detailLayer = new THREE.Group();
+  private borderLayer = new THREE.Group();
   private convoys: { mesh: THREE.Object3D; x: number; z: number; tx: number; tz: number }[] = [];
   private chevrons = new Map<number, THREE.Mesh>();
   private pickets = new Map<number, THREE.Group>();
@@ -138,13 +140,13 @@ export class BoardView {
     shCtx.fillRect(0, 0, 64, 64);
     const shTex = new THREE.CanvasTexture(shCv);
     this.shadowMat = new THREE.MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false });
-    this.shadowGeo = new THREE.PlaneGeometry(0.85, 0.85);
+    this.shadowGeo = new THREE.PlaneGeometry(0.44, 0.44);
 
     this.effects = new Effects(this.scene);
     this.loadModels();
     this.setupControls();
 
-    const t = this.contestedCenter(gs);
+    const t = this.strategicCenter(gs);
     this.focus.set(t.x, t.z);
     (window as unknown as { __fd: unknown }).__fd = this;
 
@@ -176,7 +178,7 @@ export class BoardView {
     add(new THREE.BoxGeometry(0.5, 0.4, 0.9), body, 0.95, 1.45, 0);
     const wrap = new THREE.Group();
     const box = new THREE.Box3().setFromObject(g);
-    const s = 1.55 / Math.max(box.max.y - box.min.y, 0.001);
+    const s = 0.82 / Math.max(box.max.y - box.min.y, 0.001);
     g.scale.setScalar(s);
     g.position.y = -box.min.y * s;
     wrap.add(g);
@@ -190,9 +192,9 @@ export class BoardView {
     // Per-model target sizes — a deliberate scale hierarchy (soldier < truck <
     // tank), aircraft small so they read as air cover, mech towers over all.
     const SIZES: Record<string, number> = {
-      Soldier: 0.48, Drone: 0.5, Jet: 0.78, Helicopter: 0.9,
-      Jeep: 0.85, ScoutCar: 0.95, Ambulance: 0.9,
-      LightTank: 1.08, SuperTank: 1.2, Howitzer: 0.88, MissileLauncher: 0.98
+      Soldier: 0.24, Drone: 0.25, Jet: 0.39, Helicopter: 0.44,
+      Jeep: 0.41, ScoutCar: 0.46, Ambulance: 0.43,
+      LightTank: 0.54, SuperTank: 0.61, Howitzer: 0.45, MissileLauncher: 0.5
     };
     for (const name of names) {
       loader.load(`./models/${name}.glb`, (gltf) => {
@@ -251,8 +253,8 @@ export class BoardView {
   private fallbackPiece(friendly: boolean): THREE.Object3D {
     const g = new THREE.Group();
     const mat = new THREE.MeshLambertMaterial({ color: friendly ? GOLD : SLATE });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.28, 0.7), mat);
-    body.position.y = 0.22;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.35), mat);
+    body.position.y = 0.11;
     g.add(body);
     return g;
   }
@@ -332,11 +334,20 @@ export class BoardView {
       this.lastTouch = this.time;
       if (this.pointers.size === 1) {
         const dx = e.clientX - p.x, dy = e.clientY - p.y;
-        const scale = this.worldPerPixel();
-        // The map follows the finger. Camera focus moves opposite the drag.
-        this.focus.y -= dy * scale;
-        this.focus.x -= dx * scale;
+        const before = this.pickWorld(p.x, p.y);
+        const after = this.pickWorld(e.clientX, e.clientY);
+        // Anchor world space directly under the finger. This remains correct
+        // at every pitch/aspect ratio; no screen-axis sign guess is involved.
+        if (before && after) {
+          this.focus.x += before.x - after.x;
+          this.focus.y += before.z - after.z;
+        } else {
+          const scale = this.worldPerPixel();
+          this.focus.x -= dx * scale;
+          this.focus.y += dy * scale;
+        }
         this.clampFocus();
+        this.positionCamera();
       } else if (this.pointers.size === 2) {
         const prevMid = this.pinchMid;
         const anchor = this.pickWorld(prevMid.x, prevMid.y);
@@ -346,19 +357,17 @@ export class BoardView {
         const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
         if (this.pinchDist > 0) {
           const oldDist = this.dist;
-          const nextDist = clamp(oldDist * Math.pow(this.pinchDist / Math.max(d, 1), 1.04), MIN_DIST, MAX_DIST);
-          const ratio = nextDist / oldDist;
-          if (anchor) {
-            this.focus.x = anchor.x + (this.focus.x - anchor.x) * ratio;
-            this.focus.y = anchor.z + (this.focus.y - anchor.z) * ratio;
-          }
+          const nextDist = clamp(oldDist * Math.pow(this.pinchDist / Math.max(d, 1), 1.12), MIN_DIST, MAX_DIST);
           this.dist = nextDist;
           this.distTarget = null;
-          // Midpoint motion pans at the same physical scale as one finger.
-          const scale = this.worldPerPixel(nextDist);
-          this.focus.y -= (mid.y - prevMid.y) * scale;
-          this.focus.x -= (mid.x - prevMid.x) * scale;
+          this.positionCamera();
+          const after = this.pickWorld(mid.x, mid.y);
+          if (anchor && after) {
+            this.focus.x += anchor.x - after.x;
+            this.focus.y += anchor.z - after.z;
+          }
           this.clampFocus();
+          this.positionCamera();
         }
         this.pinchDist = d;
         this.pinchMid = mid;
@@ -404,7 +413,7 @@ export class BoardView {
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.lastTouch = this.time;
-      const factor = Math.exp(clamp(e.deltaY, -160, 160) * 0.00125);
+      const factor = Math.exp(clamp(e.deltaY, -160, 160) * 0.0026);
       this.setZoomAt(e.clientX, e.clientY, this.dist * factor);
     }, { passive: false });
   }
@@ -416,28 +425,31 @@ export class BoardView {
 
   private setZoomAt(clientX: number, clientY: number, requested: number): void {
     const anchor = this.pickWorld(clientX, clientY);
-    const oldDist = this.dist;
     const nextDist = clamp(requested, MIN_DIST, MAX_DIST);
-    if (anchor && oldDist > 0) {
-      const ratio = nextDist / oldDist;
-      this.focus.x = anchor.x + (this.focus.x - anchor.x) * ratio;
-      this.focus.y = anchor.z + (this.focus.y - anchor.z) * ratio;
-    }
     this.dist = nextDist;
     this.distTarget = null;
+    this.positionCamera();
+    const after = this.pickWorld(clientX, clientY);
+    if (anchor && after) {
+      this.focus.x += anchor.x - after.x;
+      this.focus.y += anchor.z - after.z;
+    }
     this.clampFocus();
+    this.positionCamera();
   }
 
   zoomIn(): void {
     const r = this.canvas.getBoundingClientRect();
     this.lastTouch = this.time;
-    this.setZoomAt(r.left + r.width * 0.5, r.top + r.height * 0.5, this.dist * 0.72);
+    const next = [...ZOOM_LEVELS].reverse().find(level => level < this.dist - 2) ?? MIN_DIST;
+    this.setZoomAt(r.left + r.width * 0.5, r.top + r.height * 0.5, next);
   }
 
   zoomOut(): void {
     const r = this.canvas.getBoundingClientRect();
     this.lastTouch = this.time;
-    this.setZoomAt(r.left + r.width * 0.5, r.top + r.height * 0.5, this.dist * 1.38);
+    const next = ZOOM_LEVELS.find(level => level > this.dist + 2) ?? MAX_DIST;
+    this.setZoomAt(r.left + r.width * 0.5, r.top + r.height * 0.5, next);
   }
 
   focusBattle(): void {
@@ -519,17 +531,28 @@ export class BoardView {
       return sp;
     };
 
-    // Nation names first (they own their space).
+    // Nation names first (they own their space). The player's origin is a
+    // deliberate landmark, not merely another gold patch on the board.
     for (const n of this.board.nations) {
-      if (n.id === this.board.homeNation || n.territories.length === 0) continue;
+      if (n.territories.length === 0) continue;
       const terrs = n.territories.map(id => this.board.territories.find(t => t.id === id)!).filter(Boolean);
-      const cx = terrs.reduce((s, t) => s + t.cx, 0) / terrs.length;
-      const cy = terrs.reduce((s, t) => s + t.cy, 0) / terrs.length;
+      const isHome = n.id === this.board.homeNation;
+      // The homeland sits at the south of the continent. Anchor its badge to
+      // the northernmost home province so the phone drawer cannot crop it.
+      const homeAnchor = isHome ? [...terrs].sort((a, b) => a.cy - b.cy)[0] : null;
+      const cx = homeAnchor?.cx ?? terrs.reduce((s, t) => s + t.cx, 0) / terrs.length;
+      const cy = homeAnchor?.cy ?? terrs.reduce((s, t) => s + t.cy, 0) / terrs.length;
       const w = gridToWorld(cx, cy);
       if (!this.boardIsVisible(vis, n.id)) continue;  // true fog: no hint at all
       const conquered = terrs.every(t => owned.has(t.id));
-      const label = mkText(n.name.toUpperCase(), { size: 4.6, color: conquered ? 'rgba(53,35,5,0.94)' : 'rgba(255,248,233,0.94)', weight: 900 });
-      label.position.set(w.x, 3, w.z);
+      const text = isHome ? '★ HOME / HQ' : n.name.toUpperCase();
+      const label = mkText(text, {
+        size: isHome ? 3.15 : 4.6,
+        color: isHome ? 'rgba(31,24,8,1)' : conquered ? 'rgba(53,35,5,0.94)' : 'rgba(255,248,233,0.94)',
+        chip: isHome ? 'rgba(242,193,78,0.94)' : undefined,
+        weight: 900
+      });
+      label.position.set(w.x, isHome ? 3.8 : 3, w.z);
       this.nationLabelLayer.add(label);
       placed.push({ x: w.x, z: w.z });
     }
@@ -630,6 +653,41 @@ export class BoardView {
       this.detailLayer.add(hub);
     }
     this.scene.add(this.detailLayer);
+  }
+
+  private rebuildBorders(gs: GameState): void {
+    this.scene.remove(this.borderLayer);
+    this.borderLayer = new THREE.Group();
+    const visible = visibleNations(this.board, gs);
+    const byId = new Map(this.board.territories.map(t => [t.id, t]));
+    const internal: number[] = [];
+    const national: number[] = [];
+    for (const chain of sharedBorderChains(this.board)) {
+      const [a, b] = chain.pair.split('|').map(Number);
+      const ta = byId.get(a), tb = byId.get(b);
+      const visibleA = !!ta && visible.has(ta.nation);
+      const visibleB = !!tb && visible.has(tb.nation);
+      if (!visibleA && !visibleB) continue;
+      const out = !ta || !tb || !visibleA || !visibleB || ta.nation !== tb.nation ? national : internal;
+      const count = chain.closed ? chain.points.length : chain.points.length - 1;
+      for (let i = 0; i < count; i++) {
+        const p = chain.points[i], q = chain.points[(i + 1) % chain.points.length];
+        const wp = gridToWorld(p.x, p.y), wq = gridToWorld(q.x, q.y);
+        out.push(wp.x, 0.13, wp.z, wq.x, 0.13, wq.z);
+      }
+    }
+    const add = (positions: number[], color: number, opacity: number) => {
+      if (positions.length === 0) return;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+        color, transparent: true, opacity, depthWrite: false
+      }));
+      this.borderLayer.add(lines);
+    };
+    add(internal, 0x25323a, 0.42);
+    add(national, 0x111920, 0.82);
+    this.scene.add(this.borderLayer);
   }
 
   private boardIsVisible(vis: Set<number>, nation: number): boolean {
@@ -776,6 +834,16 @@ export class BoardView {
     this.focus.y = clamp(this.focus.y, -BOARD_H * (this.dist > 80 ? 0.22 : 0.5), BOARD_H * (this.dist > 80 ? 0.22 : 0.5));
   }
 
+  private positionCamera(): void {
+    const zoomT = 1 - clamp((this.dist - MIN_DIST) / (MAX_DIST - MIN_DIST), 0, 1);
+    const pitch = THREE.MathUtils.degToRad(88 - zoomT * 26);
+    const horiz = Math.cos(pitch) * this.dist;
+    const py = Math.sin(pitch) * this.dist;
+    this.camera.position.set(this.focus.x, py, this.focus.y + horiz);
+    this.camera.lookAt(this.focus.x, 0, this.focus.y);
+    this.camera.updateMatrixWorld();
+  }
+
   private resize(): void {
     const parent = this.canvas.parentElement;
     if (!parent) return;
@@ -804,6 +872,7 @@ export class BoardView {
       this.mapTex.needsUpdate = true;
       this.rebuildLabels(gs);
       this.rebuildMapDetails(gs);
+      this.rebuildBorders(gs);
     }
     // Deliberate zoom ladder. Strategic altitude shows nations only; the
     // territory chips and physical cartography arrive progressively, then text
@@ -1038,7 +1107,7 @@ export class BoardView {
     const room = show ? clamp(pts.length / 55, 0.3, 1) : 0;
     const want: { friendly: boolean; line: number }[] = [];
     if (show && hot) {
-      const caps = [14, 5, 4, 5, 3, 2, 2, 0, 2];
+      const caps = [10, 4, 3, 4, 2, 2, 1, 0, 1];
       for (let i = 0; i < LINES.length; i++) {
         const n = Math.round(Math.min(caps[i], Math.sqrt(gs.lines[i].army) * (i === 0 ? 1.6 : 0.8)) * room);
         for (let k = 0; k < n; k++) want.push({ friendly: true, line: i });
@@ -1131,7 +1200,8 @@ export class BoardView {
       if (d > 0.05) {
         // Far-off pieces redeploy at double time (post-capture advances).
         const hustle = d > 14 ? 4 : 1;
-        const step = Math.min(d, dt * 2.4 * hustle);
+        const classSpeed = p.friendly ? clamp(LINES[p.line].combat.speed * 0.62, 1.1, 8.5) : 2.4;
+        const step = Math.min(d, dt * classSpeed * hustle);
         p.x += dx / d * step;
         p.z += dz / d * step;
         p.mesh.rotation.y = Math.atan2(dx, dz) + Math.sin(p.phase * 7.3) * 0.45;
@@ -1177,8 +1247,12 @@ export class BoardView {
     // Minimum contact separation keeps opposing pieces from interpenetrating
     // at the seam (round-5: soldier standing inside a tank hull).
     const sign = p.friendly ? -1 : 1;
-    const standoff = (5.2 + wrapRank * 2.6) * sign;
-    const jx = ((p.slot * 37) % 13 - 6) * 0.55;
+    const roleRange = p.friendly ? LINES[p.line].combat.range : 5;
+    const baseStandoff = p.friendly
+      ? clamp(2.4 + roleRange * 0.19, 2.8, 13.5)
+      : 3.4;
+    const standoff = (baseStandoff + wrapRank * 1.6) * sign;
+    const jx = ((p.slot * 37) % 13 - 6) * 0.34;
     const gx = anchor.x + nx * standoff + jx;
     const gy = anchor.y + ny * standoff;
     const w = gridToWorld(gx, gy);

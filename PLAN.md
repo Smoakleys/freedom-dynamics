@@ -26,6 +26,29 @@
 
 **Build stages**: v0.4a = nation-tiled world gen + multi-front sim core + overrun capture + mass rendering. v0.4b = per-line routing + engineers/R&D + nation-fall waves + Warlord income. Then balance + juice on top.
 
+### 2026-07-19 rejection amendment (supersedes conflicting scale/sim shortcuts)
+
+- Unit classes are not anonymous `power`. Every fieldable line has health,
+  armor/effective health, damage, fire rate, range, speed, exposure, target
+  multipliers, and an operational role. Front allocation and casualties remain
+  deterministic and tick-cheap, but use the actual classes routed there.
+- Composition matters without micro: trucks support assault units, drones spot
+  for artillery/air/standoff weapons, infantry plus armor gains combined-arms
+  value, aircraft suppress incoming fire, and only occupation-capable units can
+  complete a hold after standoff weapons break the defense.
+- "See mass" means readable formation activity, not giant pieces or a screen
+  covered in icons. Units are tiny fixed-world objects, disappear at strategic
+  altitude, and preserve class differences through speed, range, formation
+  depth, and effects rather than HUD scaling.
+- Borders are screen-stable shared curves in the live renderer. Raster lines
+  that swell at close zoom do not count as vectorized. The homeland must be
+  labeled `★ HOME / HQ` in the starting strategic frame.
+- Mobile control acceptance is behavioral: a dragged ground point remains
+  under the finger, pinch/wheel zoom retain their focal point, zoom buttons use
+  explicit altitude stops, and the page never steals the map gesture.
+- Production and R&D do not permanently compete for the same phone height.
+  Routine automated lines collapse; secondary systems open on demand.
+
 **MARATHON STATUS (2026-07-19, ~03:00):** v0.4a + v0.4b SHIPPED and live. Test suite: 18 vitest sim tests (test/sim.test.ts + balance harness) + 16-assert Playwright E2E (test/e2e.py) — the "everything works when I'm back" guarantee; run `npm test` and `py -3.12 test/e2e.py`. Balance: garrisons ×11/ring after the harness caught a 1-hour continent collapse; conquest now decelerates (first nation in minutes, 6/8 nations by h9 sim, deep rings gate for days). Four fork-reviewer rounds implemented: sprite labels (killed baked-text blur), cold-nation/gold-empire ownership script, contested = cold fill + gold hatch + dashed ring + scorch, per-front pickets + hold-phase remnants (war is two-sided at every zoom), streaming rear-spawn reinforcements, flyer ground-shadows, flat momentum arrows, conquest gold shockwaves, ambient convoys, branded annexed labels, industry clusters, continent camera clamp, strike chrome chip, onboarding toasts. Reviewer verdict at round 4: far=PASS, mid=PASS, close=PASS-after-remnant-fix (verify round 5).
 
 ---

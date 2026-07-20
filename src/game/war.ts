@@ -5,6 +5,7 @@
 
 import { LINES, BALANCE, RESEARCH } from './content';
 import { unitPower, devPerSec as devSec } from './economy';
+import { applyFormationDamage, formationCombat } from './combat';
 import { gridToWorld } from '../render/board/gen';
 import type { Board } from '../render/board/gen';
 import type { GameState, GameEvent } from './state';
@@ -32,6 +33,10 @@ export interface FrontInfo {
   garrison: number;
   strength: number;      // starting garrison
   committed: number;     // your power engaged here this tick
+  unitsByLine: number[]; // actual unit classes allocated to this front
+  friendlyDps: number;   // class/role/synergy-aware damage per second
+  capturePower: number;  // occupation ability after the garrison breaks
+  suppression: number;   // air cover reducing incoming fire
   progress: number;      // 0..1 toward broken garrison
   holding: boolean;      // garrison broken, hold timer running
   holdLeft: number;
@@ -76,17 +81,6 @@ export function frontInfos(board: Board, gs: GameState): FrontInfo[] {
   const fronts = activeFronts(board, gs);
   if (fronts.length === 0) return [];
 
-  // Split army power into routed (lines with a SEND HERE target) and auto.
-  let autoPower = 0;
-  const routed: { power: number; x: number; z: number }[] = [];
-  for (let i = 0; i < LINES.length; i++) {
-    const ls = gs.lines[i];
-    if (ls.army <= 0) continue;
-    const p = ls.army * unitPower(gs, i);
-    if (ls.target) routed.push({ power: p, x: ls.target.x, z: ls.target.z });
-    else autoPower += p;
-  }
-
   let totalG = 0;
   const cents: Record<number, { x: number; z: number }> = {};
   for (const tid of fronts) {
@@ -95,30 +89,45 @@ export function frontInfos(board: Board, gs: GameState): FrontInfo[] {
     const t = board.territories.find(q => q.id === tid)!;
     cents[tid] = gridToWorld(t.cx, t.cy);
   }
-  const committedByTid: Record<number, number> = {};
-  for (const tid of fronts) {
-    const share = totalG > 0 ? Math.max(gs.garrisons[tid], 1) / totalG : 1 / fronts.length;
-    committedByTid[tid] = autoPower * share;
-  }
-  // Routed power reinforces the front nearest each line's flag.
-  for (const r of routed) {
-    let best = fronts[0], bd = Infinity;
-    for (const tid of fronts) {
-      const c = cents[tid];
-      const d = (c.x - r.x) ** 2 + (c.z - r.z) ** 2;
-      if (d < bd) { bd = d; best = tid; }
+
+  // Allocate actual unit counts, not one anonymous power pool. An unrouted
+  // class spreads across every live front; SEND HERE commits that class to the
+  // nearest front. This allocation feeds both its weapons and incoming losses.
+  const unitsByTid: Record<number, number[]> = {};
+  for (const tid of fronts) unitsByTid[tid] = new Array(LINES.length).fill(0);
+  for (let line = 0; line < LINES.length; line++) {
+    const ls = gs.lines[line];
+    if (ls.army <= 0) continue;
+    if (ls.target) {
+      let best = fronts[0], bd = Infinity;
+      for (const tid of fronts) {
+        const c = cents[tid];
+        const d = (c.x - ls.target.x) ** 2 + (c.z - ls.target.z) ** 2;
+        if (d < bd) { bd = d; best = tid; }
+      }
+      unitsByTid[best][line] += ls.army;
+    } else {
+      for (const tid of fronts) {
+        const share = totalG > 0 ? Math.max(gs.garrisons[tid], 1) / totalG : 1 / fronts.length;
+        unitsByTid[tid][line] += ls.army * share;
+      }
     }
-    committedByTid[best] += r.power;
   }
 
   return fronts.map(tid => {
     const t = board.territories.find(q => q.id === tid)!;
     const g = gs.garrisons[tid];
+    const unitsByLine = unitsByTid[tid];
+    const formation = formationCombat(gs, unitsByLine, 'garrison');
     return {
       tid,
       garrison: g,
       strength: t.strength,
-      committed: committedByTid[tid],
+      committed: unitsByLine.reduce((sum, units, i) => sum + units * unitPower(gs, i), 0),
+      unitsByLine,
+      friendlyDps: formation.dps,
+      capturePower: formation.capturePower,
+      suppression: formation.suppression,
       progress: t.strength > 0 ? 1 - g / t.strength : 1,
       holding: g <= 0,
       holdLeft: g <= 0 ? Math.max(0, WAR.HOLD_SECONDS - (gs.holdTimers[tid] ?? 0)) : WAR.HOLD_SECONDS
@@ -128,32 +137,28 @@ export function frontInfos(board: Board, gs: GameState): FrontInfo[] {
 
 export function warTick(board: Board, gs: GameState, dt: number, events: GameEvent[]): void {
   const fronts = frontInfos(board, gs);
-  const P = armyPower(gs);
 
   // — Your army takes damage: garrison bite + wave bite + friction —
-  let incoming = P * WAR.SELF_ATTRITION * dt;
-  for (const f of fronts) incoming += Math.max(0, f.garrison) * WAR.GARRISON_BITE * dt;
-  if (gs.wave) incoming += gs.wave.power * WAR.WAVE_BITE * dt;
-  if (incoming > 0 && P > 0) {
-    let damage = incoming;
-    for (let i = 0; i < LINES.length && damage > 0; i++) {
-      const ls = gs.lines[i];
-      if (ls.army <= 0) continue;
-      const up = unitPower(gs, i);
-      const poolPower = ls.army * up;
-      const spent = Math.min(poolPower, damage);
-      ls.army -= spent / up;
-      gs.stats.unitsLost += spent / up;
-      damage -= spent;
-    }
+  for (const f of fronts) {
+    const garrisonFire = Math.max(0, f.garrison) * WAR.GARRISON_BITE * (1 - f.suppression);
+    const friction = f.committed * WAR.SELF_ATTRITION;
+    applyFormationDamage(gs, f.unitsByLine, (garrisonFire + friction) * dt);
+  }
+  if (gs.wave) {
+    const allUnits = gs.lines.map(l => l.army);
+    const cover = formationCombat(gs, allUnits, 'wave').suppression;
+    applyFormationDamage(gs, allUnits, gs.wave.power * WAR.WAVE_BITE * (1 - cover) * dt);
   }
 
   // — The wave soaks your offensive power before territories do —
-  let offense = P;
+  let offenseFactor = 1;
   if (gs.wave) {
-    const grind = Math.min(gs.wave.power, offense * WAR.WAVE_DPS * dt);
+    const allUnits = gs.lines.map(l => l.army);
+    const waveFormation = formationCombat(gs, allUnits, 'wave');
+    const grind = Math.min(gs.wave.power, waveFormation.dps * WAR.WAVE_DPS * dt);
     gs.wave.power -= grind;
-    offense *= 0.35; // most of the army is busy repelling the counteroffensive
+    gs.stats.damageDealt += grind;
+    offenseFactor = 0.35;
     if (gs.wave.power <= 0) {
       events.push({ type: 'nationFell', nation: gs.wave.nation });
       gs.wave = null;
@@ -163,11 +168,14 @@ export function warTick(board: Board, gs: GameState, dt: number, events: GameEve
   // — Grind garrisons, run hold timers, flip territories —
   for (const f of fronts) {
     if (!f.holding) {
-      const dmg = (f.committed / Math.max(P, 1)) * offense * WAR.YOUR_DPS * dt;
+      const dmg = f.friendlyDps * WAR.YOUR_DPS * offenseFactor * dt;
       gs.garrisons[f.tid] = Math.max(0, f.garrison - dmg);
+      gs.stats.damageDealt += Math.min(f.garrison, dmg);
       continue;
     }
-    gs.holdTimers[f.tid] = (gs.holdTimers[f.tid] ?? 0) + dt;
+    const occupationNeeded = Math.max(0.5, Math.sqrt(Math.max(f.strength, 1)) * 0.15);
+    const occupied = f.capturePower >= occupationNeeded;
+    gs.holdTimers[f.tid] = Math.max(0, (gs.holdTimers[f.tid] ?? 0) + (occupied ? dt : -dt * 2));
     if (gs.holdTimers[f.tid] >= WAR.HOLD_SECONDS) {
       const t = board.territories.find(q => q.id === f.tid)!;
       gs.owned.push(f.tid);
@@ -242,10 +250,17 @@ export function applyStrike(board: Board, gs: GameState, kind: string, wx: numbe
     const d = Math.hypot(c.x - wx, c.z - wz);
     if (d > spec.radius) continue;
     ensureGarrison(board, gs, tid);
-    gs.garrisons[tid] = Math.max(0, gs.garrisons[tid] - spec.dmg / Math.max(1, fronts.length * (spec.radius === Infinity ? 1 : 0.4)));
+    const before = gs.garrisons[tid];
+    gs.garrisons[tid] = Math.max(0, before - spec.dmg / Math.max(1, fronts.length * (spec.radius === Infinity ? 1 : 0.4)));
+    gs.stats.damageDealt += before - gs.garrisons[tid];
     hit = true;
   }
-  if (gs.wave) { gs.wave.power = Math.max(0, gs.wave.power - spec.dmg * 0.5); hit = true; }
+  if (gs.wave) {
+    const before = gs.wave.power;
+    gs.wave.power = Math.max(0, gs.wave.power - spec.dmg * 0.5);
+    gs.stats.damageDealt += before - gs.wave.power;
+    hit = true;
+  }
   if (hit) gs.cooldowns[kind] = def.cooldown ?? 120;
   return hit;
 }

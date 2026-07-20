@@ -14,6 +14,8 @@ export interface LineState {
 
 export interface Stats {
   unitsLost: number;
+  damageDealt: number;
+  damageTaken: number;
   daysWonOffline: number;
   earnedOffline: number;
 }
@@ -80,7 +82,7 @@ export function newGame(): GameState {
     lines,
     lastSeen: Date.now(),
     founded: false,
-    stats: { unitsLost: 0, daysWonOffline: 0, earnedOffline: 0 }
+    stats: { unitsLost: 0, damageDealt: 0, damageTaken: 0, daysWonOffline: 0, earnedOffline: 0 }
   };
 }
 

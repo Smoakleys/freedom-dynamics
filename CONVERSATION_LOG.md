@@ -186,3 +186,46 @@
   served the prior bundle pair. This is recorded as an external publication
   delay: do not churn the already-correct branch; poll until the public index
   exposes the new hashes, then append the final live-verification checkpoint.
+- Bridger rejected the result as nowhere near the required bar: units remain
+  too large; map pan direction and zoom do not work properly; there is no real
+  per-unit fighting logic, damage, or health calculation; the player's home
+  nation/start is not obvious; the map remains rough; the UI is large and
+  cluttered; and there are many more product-level shortcomings. He ordered an
+  insanely critical iterative pass and repeated the requirement to keep the
+  handoff current. Agent accepted this as a whole-product rejection, re-read
+  the North Star/Living War/visual rules, and began a combined sim, control,
+  origin-readability, renderer, and UI audit rather than defending the prior
+  screenshots or treating this as polish.
+- First material replacement checkpoint after the rejection: added
+  deterministic class combat (`src/game/combat.ts`) with real health, armor,
+  damage, fire rate, range, speed, exposure, role targeting, support/recon and
+  combined-arms bonuses, air suppression, and occupation requirements. Fronts
+  now allocate actual per-line unit counts and apply casualties to the classes
+  fighting there; lifetime damage dealt/taken was added to state. Rebuilt
+  mobile pan/pinch/wheel/button zoom around raycast focal anchors and discrete
+  altitude stops. Halved unit/shadow scale again, lowered formation caps, and
+  made class speed/range visible in movement and standoff. Added a distinct
+  `★ HOME / HQ` map landmark and homeland color. Tightened border curves and
+  hierarchy, expanded the default map share, removed repeated card prose,
+  exposed concise combat stats, and replaced the ambiguous flag with explicit
+  DIRECT/TARGET states. Compile checkpoint is green: 18/18 Vitest and
+  production build. No visual-pass or deploy claim yet; targeted combat tests,
+  mobile E2E, and harsh far/mid/close review remain.
+- Second material checkpoint: the first unobstructed phone review rejected the
+  still-raster border strokes and an off-screen home origin. Border fills still
+  share one spline topology, but strokes now render as real Three.js line
+  geometry, remaining one screen pixel at close zoom. The initial camera opens
+  at strategic altitude; `★ HOME / HQ` is anchored to the northern homeland
+  province so the drawer cannot crop it. R&D is collapsed behind a dedicated
+  toggle, card prose is gone, and automated lines compress BUY + DIRECT into a
+  single touch row while unautomated lines keep teaching actions.
+- Final local rejection-pass gate: exact bundles `index-BlYRmRLD.js` /
+  `index-DcUIU8zD.css`; build green; 22/22 Vitest; full mobile E2E all green
+  with 23 checks and zero console errors. The control test now verifies that a
+  grabbed world point remains beneath the finger after a drag at operational
+  zoom, rather than assuming axis signs or testing against the strategic camera
+  clamp. Full and rapid far/mid/close artifacts regenerated. Visual review
+  passes this checkpoint: home origin is unmistakable, borders screen-stable,
+  units tiny and absent strategically, money centered, and the default drawer
+  fits five automated classes without the R&D panel. Deployment remains; this
+  does not close the broader product backlog.

@@ -71,7 +71,7 @@ function hudInfo(): { title: string; sub: string; pct: number; label: string } {
   const nation = t ? board.nations[t.nation] : null;
   return {
     title: t ? t.name.toUpperCase() : 'ALL QUIET',
-    sub: t && nation ? `${fronts.length} FRONTS ACTIVE · vs ${nation.adversaryName.toUpperCase()}` : 'THE CONTINENT AWAITS',
+    sub: t && nation ? `HQ → ${fronts.length} FRONTS · vs ${nation.adversaryName.toUpperCase()}` : 'HQ SECURE · THE CONTINENT AWAITS',
     pct,
     label: `${held}/${total} HELD`
   };
@@ -123,7 +123,7 @@ if (!gs.founded) {
     save(gs);
     begin();
     // First-day orientation, PMC style.
-    setTimeout(() => ui.toast('The gold territory is YOURS. Everything touching it is a front.'), 1500);
+    setTimeout(() => ui.toast('★ HOME / HQ is your gold homeland. Every touching border is a front.'), 1500);
     setTimeout(() => ui.toast('Tap DELIVER to ship product. Deliveries fight AND pay.'), 6500);
     setTimeout(() => ui.toast('Pinch the map — zoom from the whole war down to one firefight.'), 12000);
   });

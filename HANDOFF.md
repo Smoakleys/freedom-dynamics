@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-19 ~19:52 (source/deploy pushed; GitHub Pages publication delayed externally)*
+*Last update: 2026-07-20 ~00:03 (rejection-pass local gate green; deploy pending)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -20,7 +20,7 @@ token from `git credential fill`).
 ## Build / test / deploy (the loop for EVERY change)
 - Node lives at `C:\Users\bhump\tools\node-v24.18.0-win-x64` (NOT on PATH —
   prefix it). Python via `py -3.12` (has playwright, PIL, numpy, gdown).
-- `npm run build` (tsc + vite) → `npm test` (18 vitest sim tests incl. balance
+- `npm run build` (tsc + vite) → `npm test` (22 vitest sim tests incl. balance
   harness) → `py -3.12 test/e2e.py` (23 assertions vs built dist; writes
   screenshots to test/artifacts/e2e_{far,mid,close}.png).
 - Visual change? → fork-Fable harsh review of the three artifacts (see gate).
@@ -29,6 +29,45 @@ token from `git credential fill`).
 - Commit style: end with Co-Authored-By Claude + Claude-Session link.
 
 ## Current state (all deployed & green unless noted)
+- **LOCAL, NOT DEPLOYED (23:46):** the rejection pass now has a real combat
+  foundation in `src/game/combat.ts` and per-line profiles in `content.ts`.
+  Every class has health, effective health/armor, damage, fire rate, range,
+  speed, exposure, role multipliers, and occupation strength. Front routing
+  allocates actual class counts; garrison/wave damage targets the classes on
+  that front rather than deleting anonymous power from line 0; support, recon,
+  combined-arms, air suppression, and capture-capable roles have deterministic
+  effects. Lifetime damage dealt/taken is migrated into saves. Artillery and
+  standoff weapons can break a defense but cannot occupy it alone.
+- **LOCAL renderer/control/UI replacement:** drag now preserves the grabbed
+  ground point using camera raycasts, pinch/wheel/buttons keep their focal
+  point, and zoom buttons use five explicit altitude stops. Unit models and
+  shadows were halved again, formation caps reduced, and class movement speed
+  plus weapon range now affect board movement/standoff. The homeland has a
+  persistent `★ HOME / HQ` chip and distinct gold; HUD copy begins at HQ.
+  Curves now use denser sampling/lower tension/less simplification and lighter
+  internal borders. The mobile drawer defaults to more battlefield, removes
+  card prose, exposes compact combat stats, replaces the cryptic flag with a
+  DIRECT/TARGET/TAP MAP control, and compresses repeated chrome.
+- Compile checkpoint: `npm test -- --run` = 18/18 and `npm run build` passes.
+  This is not a visual gate or deployment verdict. Next: dedicated combat
+  invariants, mobile gesture E2E, real far/mid/close browser review, then
+  iterate again wherever the full composition still fails.
+- **FINAL LOCAL REJECTION-PASS GATE (00:03):** exact production bundles are
+  `index-BlYRmRLD.js` + `index-DcUIU8zD.css`; build passes and Vitest is 22/22.
+  The full 118-second phone E2E is all green (23 assertions): fresh purchase,
+  R&D toggle/program, strikes, routing, capture, no horizontal drift, centered
+  HUD at three altitudes, zero console errors, and the stronger pan invariant
+  that the grabbed world coordinate remains under the moved finger. Latest
+  full artifacts are `test/artifacts/e2e_{far,mid,close}.png`; latest exact-
+  build rapid artifacts are `zoom_{far,mid,close}.png`.
+- Harsh composition verdict for this checkpoint: FAR clearly shows homeland
+  `★ HOME / HQ`, centered money, thin screen-stable borders, and strategic
+  labels only; MID retains small finite pieces and one front chip; CLOSE shows
+  tiny fixed-world class silhouettes with range-separated formations. R&D is
+  collapsed by default. Automated lines compress BUY + DIRECT into one 56px
+  summary row (five routine lines fit in the phone drawer); manual lines retain
+  expanded teaching controls. This passes the specified checkpoint, not the
+  entire product backlog. Deployment is next.
 - Living War v0.4b + five fork-review rounds: nations continent (~9 nations,
   free-form multi-front conquest), overrun capture (+60s hold), nation-fall
   final waves (red-alert HUD, camera cut), territorial rent, arms exports,
@@ -190,6 +229,22 @@ questions; NO AI mood images — code renders only.
   exact new JS/CSS pair; only retry publication if GitHub reports an error
   rather than `building`. The repo and deploy branch are complete and clean;
   public propagation is the sole outstanding item.
+- 2026-07-19 ~23:28 DIRECT REJECTION / NEW WORKING AUTHORITY: Bridger says the
+  current game still looks and functions badly and explicitly rejects the prior
+  green-gate verdict. Concrete failures: units are still too large; pan
+  direction and zoom still do not function properly; units lack real per-type
+  fighting logic, damage, and health calculation; there is no obvious home
+  nation/start; the map remains rough; the UI is oversized and cluttered; and
+  the whole product needs an insanely critical, iterative review rather than a
+  narrow patch. This supersedes all earlier self-review claims. Current agent
+  has re-read the North Star, Living War spec, continuity log, and visual gate,
+  and is auditing the renderer plus deterministic sim together before changing
+  code. Required work order: establish actual combat/state gaps and control
+  failure modes; implement formation/unit-class health/damage/targeting logic
+  without micro or persistence; make origin and front direction unmistakable;
+  repair camera gestures; reduce unit/UI scale again; then run repeated
+  far/mid/close mobile visual and gameplay gates. Update this file and the log
+  at every material milestone.
 - Warm signal so far: he picked "A — Vector-crisp" (flat fills, uniform ~2px
   ink borders, zero texture) over soft-premium and flat-plates, but said
   "nothing is stable".

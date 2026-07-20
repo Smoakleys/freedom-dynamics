@@ -3,6 +3,7 @@
 import { LINES, RESEARCH, randomCompanyName, AAR_EUPHEMISMS } from '../game/content';
 import { bulkCost, maxAffordable, buy, hire, batchDuration, batchRevenue, nextMilestone, engineerCost, devPerSec, availableResearch, lineUnlocked } from '../game/economy';
 import { fmt, fmtMoney, fmtDuration } from '../game/format';
+import { unitCombatStats } from '../game/combat';
 import type { GameState, GameEvent } from '../game/state';
 import type { OfflineReport } from '../game/sim';
 import type { Board } from '../render/board/gen';
@@ -68,7 +69,7 @@ export class UI {
           <button id="map-zoom-out" aria-label="Zoom out">&minus;</button>
           <button id="map-focus" aria-label="Focus active front">&#9678;</button>
           <button id="map-zoom-in" aria-label="Zoom in">+</button>
-          <span>DRAG · PINCH</span>
+          <span>1-FINGER PAN · PINCH</span>
         </div>
         <div id="strike-bar"></div>
         <div id="chyron">
@@ -80,6 +81,7 @@ export class UI {
       <div id="drawer">
         <div id="drawer-header">
           <div id="company-name"></div>
+          <button id="rnd-toggle" aria-expanded="false">R&amp;D</button>
           <div id="buy-mult">
             <button data-mode="1" class="active">x1</button>
             <button data-mode="10">x10</button>
@@ -87,7 +89,7 @@ export class UI {
             <button data-mode="max">MAX</button>
           </div>
         </div>
-        <div id="rnd-panel">
+        <div id="rnd-panel" hidden>
           <div class="rnd-row">
             <div class="rnd-info">
               <div class="rnd-title">ENGINEERING CORPS</div>
@@ -108,7 +110,15 @@ export class UI {
     this.frontFill = document.getElementById('front-fill')!;
     this.frontLabel = document.getElementById('front-label')!;
     this.toasts = document.getElementById('toasts')!;
-    document.getElementById('company-name')!.textContent = this.gs.company || 'UNINCORPORATED';
+    document.getElementById('company-name')!.textContent = `★ HQ · ${this.gs.company || 'UNINCORPORATED'}`;
+    document.getElementById('rnd-toggle')!.addEventListener('click', () => {
+      const panel = document.getElementById('rnd-panel')!;
+      const toggle = document.getElementById('rnd-toggle') as HTMLButtonElement;
+      panel.hidden = !panel.hidden;
+      toggle.setAttribute('aria-expanded', String(!panel.hidden));
+      toggle.textContent = panel.hidden ? 'R&D' : 'LINES';
+      toggle.classList.toggle('active', !panel.hidden);
+    });
 
     document.querySelectorAll('#buy-mult button').forEach(b => {
       b.addEventListener('click', () => {
@@ -183,11 +193,10 @@ export class UI {
         <div class="line-top">
           <div class="line-icon">${ICONS[i]}<span class="line-owned">0</span></div>
           <div class="line-info">
-            <div class="line-name">${L.name}</div>
-            <div class="line-desc">${L.desc}</div>
+            <div class="line-name">${L.name}<span class="line-role">${L.combat.roleLabel}</span></div>
             <div class="line-stats"></div>
           </div>
-          <button class="line-flag" title="Send this line's output somewhere">⚑</button>
+          <button class="line-flag" title="Choose where this unit class fights">DIRECT</button>
         </div>
         <div class="line-progress"><div class="line-progress-fill"></div></div>
         <div class="line-actions">
@@ -320,6 +329,8 @@ export class UI {
       flagBtn.classList.toggle('set', !!ls.target);
       flagBtn.classList.toggle('arming', this.armedLine === i);
       flagBtn.style.display = ls.army > 0 || ls.target ? '' : 'none';
+      r.root.classList.toggle('automated', ls.hired);
+      r.root.classList.toggle('can-direct', ls.army > 0 || !!ls.target);
       const count = this.buyCount(i);
       const cost = bulkCost(i, ls.owned, count);
       const affordable = gs.funds >= cost;
@@ -330,9 +341,13 @@ export class UI {
       r.ownedEl.textContent = fmt(ls.owned);
 
       const ms = nextMilestone(ls.owned);
-      r.statsEl.textContent = ls.owned === 0
-        ? `${fmtMoney(L.revenue)}/unit · power ${fmt(L.power)}`
-        : `${fmtMoney(batchRevenue(gs, i))}/batch · ${fmtDuration(batchDuration(gs, i))}` + (ms ? ` · next x2 @ ${ms}` : '');
+      const combat = unitCombatStats(gs, i);
+      const combatLine = `${fmt(combat.damage)} DMG · ${fmt(combat.maxHealth)} HP · ${fmt(combat.range)} RNG`;
+      const economyLine = ls.owned === 0
+        ? `${fmtMoney(L.revenue)}/DELIVERY`
+        : `${fmtMoney(batchRevenue(gs, i))}/${fmtDuration(batchDuration(gs, i))}` + (ms ? ` · x2 @ ${ms}` : '');
+      r.statsEl.innerHTML = `<span>${combatLine}</span><em>${economyLine}</em>`;
+      flagBtn.textContent = this.armedLine === i ? 'TAP MAP' : ls.target ? 'TARGET' : 'DIRECT';
 
       r.buyBtn.disabled = !affordable || count === 0;
       (r.buyBtn.querySelector('small') as HTMLElement).textContent =
@@ -458,7 +473,7 @@ export class UI {
       const finalName = input.value.trim() || name;
       overlay.remove();
       onDone(finalName);
-      document.getElementById('company-name')!.textContent = finalName;
+      document.getElementById('company-name')!.textContent = `★ HQ · ${finalName}`;
     });
   }
 
