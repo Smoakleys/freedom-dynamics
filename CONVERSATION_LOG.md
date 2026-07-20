@@ -178,3 +178,11 @@
   Deployment is the next action; the unanswered taste question is whether the
   current slim always-visible LIVE ticker should eventually collapse to an
   event-only badge.
+- Source commit `755d7c6` was pushed to `main`; production commit `a639b6a` was
+  force-pushed to `gh-pages` with expected bundles `index-ByuXqJEC.js` and
+  `index-B5GOXtGX.css`. GitHub's authenticated Pages status identified the
+  correct commit but remained `building`, then the Pages status and rebuild
+  endpoints returned HTTP 503. At 19:52 CDT the cache-busted public index still
+  served the prior bundle pair. This is recorded as an external publication
+  delay: do not churn the already-correct branch; poll until the public index
+  exposes the new hashes, then append the final live-verification checkpoint.

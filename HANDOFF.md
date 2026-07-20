@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-19 ~19:39 (premium UI/map/control redo gate green; deployment next)*
+*Last update: 2026-07-19 ~19:52 (source/deploy pushed; GitHub Pages publication delayed externally)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -177,6 +177,19 @@ questions; NO AI mood images — code renders only.
   remained correct; explicit battle layer order was added anyway and this
   capture-engine quirk is documented rather than hidden. No app-layout failure
   remains. Source/deploy commits and live hash verification are next.
+- 2026-07-19 ~19:52 DEPLOYMENT CHECKPOINT / EXTERNAL DELAY: source commit
+  `755d7c6` ("Raise visual bar for map and mobile UI") is pushed to `main`.
+  Production commit `a639b6a` is force-pushed to `gh-pages` and contains the
+  expected bundles `assets/index-ByuXqJEC.js` and
+  `assets/index-B5GOXtGX.css`. GitHub's authenticated Pages API initially
+  confirmed `status: building`, commit `a639b6a`; it then began returning HTTP
+  503 for both status and supported rebuild requests. The cache-busted public
+  index still returned the prior `index-CJlqyRRo.js` / `index-Bkvu4sxb.css` at
+  19:52 CDT. Do **not** rewrite or repush the branch while the job is building.
+  Next agent should poll the public URL with a new query string and verify the
+  exact new JS/CSS pair; only retry publication if GitHub reports an error
+  rather than `building`. The repo and deploy branch are complete and clean;
+  public propagation is the sole outstanding item.
 - Warm signal so far: he picked "A — Vector-crisp" (flat fills, uniform ~2px
   ink borders, zero texture) over soft-premium and flat-plates, but said
   "nothing is stable".
