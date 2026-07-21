@@ -342,3 +342,10 @@ Command/Theater/Engagement stops, expanded close viewport, rail containment,
 centered money, horizontal stability, and zero console errors. A separate
 390×844 live-browser boot check also returned exact viewport width and no
 errors. Deployment is next.
+
+**Deployment:** Committed the implementation as source `4884863` and pushed it
+to `main`. Built a clean `gh-pages` worktree and force-published production
+commit `4a56f7fe38003726aba8c80214d9f1f8986e2be7`. Cache-busted live HTML served
+the exact gated `index-gAF3_Ijj.js`, and `git ls-remote` matched the deployed
+commit. The isolated generated deployment directory remains in the Windows
+temp folder because the safety guard rejected recursive cleanup.

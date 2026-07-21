@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-20 (three-view Engagement overhaul gated; deploy pending)*
+*Last update: 2026-07-20 (three-view Engagement overhaul deployed/live-verified)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -61,7 +61,7 @@ token from `git credential fill`).
   expanded phone battlefield/collapsed production drawer, and soft camera rail
   along the active border. Continuous pinch may interpolate, but controls and
   composition must not expose extra conceptual stops.
-- **THREE-VIEW IMPLEMENTATION MILESTONE (local, not deployed):** Renderer and
+- **THREE-VIEW IMPLEMENTATION MILESTONE (deployed):** Renderer and
   explicit controls now author only `[Command 112, Theater 76, Engagement 28]`;
   continuous pinch remains interpolation. Engagement crossfades away all
   strategic labels, borders, routes, HQ/route flags, and the saturated map,
@@ -79,7 +79,14 @@ token from `git credential fill`).
   70-second conquest, and zero console errors. Final far/mid/close artifacts
   pass whole-frame review. A separate in-app 390×844 boot check also found
   exact-width layout and zero browser errors. Commit/deploy/live verification
-  are next.
+  completed as recorded below.
+- **THREE-VIEW DEPLOYMENT VERIFIED:** Source commit `4884863` is on `main` and
+  production commit `4a56f7fe38003726aba8c80214d9f1f8986e2be7` is on
+  `gh-pages`. Cache-busted public HTML returned exact gated bundle
+  `index-gAF3_Ijj.js`; `git ls-remote` matched the production commit. Generated
+  deploy worktree
+  `C:\Users\bhump\AppData\Local\Temp\fd-deploy-474addaa72774e89a5c85ac7b4dad8a0`
+  remains because the recursive cleanup safety guard rejected removal.
 - **CURRENT DIRECTIVE / SUPERSEDES CHECKPOINT THINKING:** Bridger rejected the
   pattern of explaining isolated gaps after deployment. He ordered a wide look
   at what the final product must be, followed by implementation with no
