@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-20 (causal-war overhaul deployed and live-verified)*
+*Last update: 2026-07-20 (three-view Engagement overhaul gated; deploy pending)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -21,7 +21,7 @@ token from `git credential fill`).
 - Node lives at `C:\Users\bhump\tools\node-v24.18.0-win-x64` (NOT on PATH —
   prefix it). Python via `py -3.12` (has playwright, PIL, numpy, gdown).
 - `npm run build` (tsc + vite) → `npm test` (25 vitest sim tests incl. balance
-  harness) → `py -3.12 test/e2e.py` (23 assertions vs built dist; writes
+  harness) → `py -3.12 test/e2e.py` (27 assertions vs built dist; writes
   screenshots to test/artifacts/e2e_{far,mid,close}.png).
 - Visual change? → fork-Fable harsh review of the three artifacts (see gate).
 - Deploy: copy dist/* + .nojekyll into a temp dir, git init -b gh-pages,
@@ -29,6 +29,57 @@ token from `git credential fill`).
 - Commit style: end with Co-Authored-By Claude + Claude-Session link.
 
 ## Current state (all deployed & green unless noted)
+- **CURRENT VISUAL DIRECTIVE:** Bridger says units remain difficult to read at
+  the zoom where they become visible and explicitly rejects treating zoom as
+  mere magnification of the same strategic map. The supported views must be
+  genuinely different compositions. The closest view should become a local
+  battle presentation along an active border, with units visibly fighting in
+  that corridor. Do not solve this by making fixed-world units large again;
+  solve it through close-only terrain/value structure, faction contrast,
+  battle framing, and camera behavior. Before locking the implementation,
+  present Bridger with specific choices for (1) tactical terrain treatment,
+  (2) border-following versus free close camera, and (3) unit identification.
+- **CLOSE-VIEW AUDIT MILESTONE:** `e2e_close.png` confirms the renderer only
+  lowers the camera from 88 to 62 degrees and hides strategic labels/details;
+  it keeps the same saturated ownership-map plane underneath. The hot front is
+  still a thin glowing cartographic seam, while fixed-scale gold/gray models
+  have no common local ground, faction base, or silhouette treatment. The eye
+  therefore reads “province map with tiny objects,” not “battle along a
+  border.” Implementation is deliberately paused at Bridger's concrete visual
+  choice gate rather than locking a speculative close-mode art direction.
+- **PREFERENCE-GATE CORRECTION:** Bridger rejected the first A/B questions as
+  insufficiently specific. The next proposal must describe exact zoom-stop
+  transitions, battlefield footprint, colors/signals, camera/thumb behavior,
+  health/damage visibility, and what remains visible or disappears—not merely
+  name broad styles such as “tactical diorama” or “premium board.”
+- **CLOSE-VIEW DIRECTION LOCKED / IMPLEMENT NOW:** Bridger rejected five named
+  layers as overdesigned and explicitly removed the proposed `Front` and
+  `Battle` layers. The product has three meaningful views only: `Command`,
+  `Theater`, and `Engagement`. Engagement is the one close view where the
+  strategic map transforms into a modeled border battlefield and individual
+  units fight. Proceed with the recommended modeled-terrain treatment,
+  expanded phone battlefield/collapsed production drawer, and soft camera rail
+  along the active border. Continuous pinch may interpolate, but controls and
+  composition must not expose extra conceptual stops.
+- **THREE-VIEW IMPLEMENTATION MILESTONE (local, not deployed):** Renderer and
+  explicit controls now author only `[Command 112, Theater 76, Engagement 28]`;
+  continuous pinch remains interpolation. Engagement crossfades away all
+  strategic labels, borders, routes, HQ/route flags, and the saturated map,
+  replacing them with a locally aligned two-sided textured field plus a narrow
+  no-man's-land. Existing front formations snap into truthful opposing cohorts
+  on first reveal; later count increases still march in from the rear. Models
+  remain fixed world scale but gain thin gold/slate contact rings and
+  damage-only health rings. The soft rail stores limited cross-front offset and
+  follows the moving seam; the phone battlefield expands from 58dvh to 76dvh.
+  The first two geometry iterations were explicitly rejected for giant seam
+  wedges/oversized bases, and then for empty/off-center battle framing. Current
+  exact local build is `index-gAF3_Ijj.js` + `index-xr9wzsUd.css`. Full gate is
+  green: 25/25 Vitest and all 27 phone E2E assertions, including exact authored
+  stops, 76dvh Engagement height, centered HUD, soft-rail containment,
+  70-second conquest, and zero console errors. Final far/mid/close artifacts
+  pass whole-frame review. A separate in-app 390×844 boot check also found
+  exact-width layout and zero browser errors. Commit/deploy/live verification
+  are next.
 - **CURRENT DIRECTIVE / SUPERSEDES CHECKPOINT THINKING:** Bridger rejected the
   pattern of explaining isolated gaps after deployment. He ordered a wide look
   at what the final product must be, followed by implementation with no

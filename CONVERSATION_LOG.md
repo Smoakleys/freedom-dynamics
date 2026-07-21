@@ -277,3 +277,68 @@
   `index-BlJBatsP.css`, while `git ls-remote` matched the deployed commit. The
   isolated generated deploy directory was intentionally left in the Windows
   temp folder after the safety guard rejected recursive cleanup.
+## 2026-07-20 — Close zoom must become a real battle view
+
+**Bridger:** Reported that units are hard to see once zoomed close enough for
+them to appear. Rejected keeping the map visually unchanged through the zoom
+range: zoom levels should be distinct views, and the closest view—while moving
+along a border—should show the units battling it out. Asked the agent to be
+creative and to ask concrete questions so the direction is right before it is
+locked.
+
+**Agent:** Accepted the criticism as a composition/zoom-language failure, not a
+request to enlarge the units. Recorded a new directive to treat close zoom as a
+separate tactical presentation tied to the same world/front state, then began
+auditing the camera, map plane, visibility thresholds, and current close
+artifact. The next decision gate is intentionally specific: tactical terrain
+treatment, close-camera border behavior, and the minimum unit-identification
+signal.
+
+**Audit milestone:** The current close artifact and renderer agree: close zoom
+only lowers camera pitch (88° toward 62°), removes labels/details, and reveals
+fixed-world pieces below distance 48. It does not swap or crossfade the
+strategic ownership plane, and its contested border remains a thin map seam.
+Large saturated red/black fields consequently overpower the small gold/gray
+units. The agent stopped at a three-part, decision-shaped preference gate
+before implementing the new close-mode visual language.
+
+**Bridger:** “I need you to be more specific.” The agent accepted that the
+first choice gate used style labels instead of describing the actual screen and
+interaction. The replacement decision must specify the zoom transitions,
+border corridor, terrain/faction treatment, camera constraints, touch gestures,
+unit bases, damage/health signals, and close-view HUD behavior precisely enough
+to approve or amend line by line.
+
+**Bridger:** Said the proposed five-layer ladder was too complicated and that
+the named `Front` and `Battle` layers could be removed, then approved the work:
+“But yeah do it.”
+
+**Agent:** Locked a three-view model—Command, Theater, Engagement. Engagement
+absorbs the entire close-border experience: transformed local terrain,
+individual combat, expanded phone battlefield, and a soft border-following
+camera. Began implementation and verification immediately.
+
+**Implementation milestone:** Replaced the five-stop ladder with three authored
+control stops: Command 112, Theater 76, Engagement 28. Engagement expands the
+phone battlefield, hides strategic cartography and routing markers, creates a
+local two-sided field aligned to the live border, keeps the seam centered with
+a soft pan rail, and stages friendly/enemy representative formations on
+opposite sides. Fixed-world models were not enlarged; thin faction contact
+rings and damage-only health rings provide contrast. Initial attempts were
+rejected during self-review because connected border ribbons produced giant
+wedges, then because independent unit normals scattered the formation and the
+camera framed empty ground. Those paths were replaced rather than defended.
+Rapid E2E now verifies the exact three stops, expanded Engagement viewport,
+centered money/HUD, and zero console errors. Full timed gate and deploy remain.
+
+**Final local gate:** Made existing formations snap into place on first reveal
+(only later reinforcements march from the rear), stored the close rail's signed
+cross-front offset so it follows the moving seam, removed close routing flags,
+aligned both factions to one shared formation frame, narrowed no-man's-land,
+and replaced loud terrain doodles with subtle repeated scoring. Final exact
+build is `index-gAF3_Ijj.js` + `index-xr9wzsUd.css`. 25/25 Vitest and all 27
+full mobile E2E assertions pass, including conquest, exact
+Command/Theater/Engagement stops, expanded close viewport, rail containment,
+centered money, horizontal stability, and zero console errors. A separate
+390×844 live-browser boot check also returned exact viewport width and no
+errors. Deployment is next.

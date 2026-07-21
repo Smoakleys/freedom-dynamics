@@ -70,3 +70,33 @@ performed the harsh whole-frame review rather than skipping the gate.
   HUD stays within the phone viewport. Secondary-front pickets also refresh on
   coarse class/strength changes rather than retaining stale silhouettes.
   Automated interaction/geometry gate is all green with zero console errors.
+
+## 2026-07-20 three-view Engagement gate
+
+- Product language is exactly three authored views: Command, Theater, and
+  Engagement. Artifact filenames remain `far`, `mid`, and `close` for test
+  compatibility, but capture the exact authored stops (112/76/28).
+- Rejected iteration 1: connected close-border ribbons bridged discontinuous
+  chains into giant terrain wedges; faction bases and craters were oversized.
+- Rejected iteration 2: safer geometry still framed empty border while current
+  formations incorrectly marched in as if newly delivered.
+- Rejected iteration 3: independent per-piece border normals mixed factions on
+  the same side and scattered the encounter. Replaced with one shared local
+  formation frame tied to the real active front.
+- COMMAND PASS: HQ, ownership, routes, and fronts remain immediately legible;
+  individual combat pieces are absent.
+- THEATER PASS: territory labels, reinforcement paths, and named pressure
+  points read without Engagement terrain or unit-ring clutter.
+- ENGAGEMENT PASS: strategic labels, province borders, routes, HQ, and routing
+  flags clear out. A centered narrow no-man's-land separates muted gold/khaki
+  and slate fields; fixed-scale class models form opposing cohorts, faction
+  contact rings expose silhouettes, damaged representatives show health arcs,
+  and real tracer/explosion events cross the seam. The 76dvh battlefield gives
+  the encounter room while three production rows remain accessible.
+- Mobile interaction PASS: one-finger drag remains within the saved ±8-world-
+  unit soft rail, pinch-out releases the close composition, money remains exact
+  top-center, and no horizontal page drift or browser console errors occurred.
+- Full gate: 25/25 Vitest plus all 27 mobile E2E assertions pass. Independent
+  fork review was unavailable under the active no-delegation constraint; the
+  primary agent performed repeated harsh whole-frame review and recorded every
+  rejected iteration above.

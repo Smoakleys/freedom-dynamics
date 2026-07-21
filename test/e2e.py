@@ -6,6 +6,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "dist")
 ART = os.path.join(ROOT, "test", "artifacts")
 os.makedirs(ART, exist_ok=True)
+FAST_VISUAL = os.environ.get("FD_FAST_VISUAL") == "1"
 
 from playwright.sync_api import sync_playwright
 
@@ -170,29 +171,49 @@ try:
 
         # Conquest progresses over time.
         t0 = page.evaluate("() => JSON.parse(localStorage.getItem('freedom-dynamics-save-v1')).owned.length")
-        time.sleep(70)
-        page.evaluate("() => window.dispatchEvent(new Event('pagehide'))")
-        t1 = page.evaluate("() => JSON.parse(localStorage.getItem('freedom-dynamics-save-v1')).owned.length")
-        check("war: territory captured within 70s under overwhelming force", t1 > t0, f"{t0} -> {t1}")
+        if not FAST_VISUAL:
+            time.sleep(70)
+            page.evaluate("() => window.dispatchEvent(new Event('pagehide'))")
+            t1 = page.evaluate("() => JSON.parse(localStorage.getItem('freedom-dynamics-save-v1')).owned.length")
+            check("war: territory captured within 70s under overwhelming force", t1 > t0, f"{t0} -> {t1}")
 
         # Screenshots for the visual reviewer.
+        page.evaluate("() => document.querySelectorAll('#toasts .toast').forEach(t => t.remove())")
         for _ in range(11):
             page.mouse.move(cx, cy); page.mouse.wheel(0, 120); time.sleep(0.05)
         time.sleep(2)
         check_hud_geometry(page, "far")
         page.screenshot(path=os.path.join(ART, "e2e_far.png"))
-        # Strategic → operational: stop near the label/detail transition so
-        # the visual gate actually exercises the designed mid zoom tier.
-        for _ in range(7):
-            page.mouse.move(cx, cy); page.mouse.wheel(0, -120); time.sleep(0.05)
-        time.sleep(11)
+        # Exactly three authored stops: Command -> Theater -> Engagement.
+        # Continuous pinch/wheel remains interpolation, not another tier.
+        page.click("#map-zoom-in")  # MAX_DIST -> Command stop
+        page.click("#map-zoom-in")  # Command -> Theater
+        time.sleep(3)
+        mid_dist = page.evaluate("() => window.__fd.dist")
+        check("map: Theater is the middle authored stop", abs(mid_dist - 76) < 0.5, str(mid_dist))
         check_hud_geometry(page, "mid")
         page.screenshot(path=os.path.join(ART, "e2e_mid.png"))
-        for _ in range(9):
-            page.mouse.move(cx, cy); page.mouse.wheel(0, -120); time.sleep(0.05)
-        time.sleep(11)
+        page.click("#map-zoom-in")  # Theater -> Engagement
+        time.sleep(3)
+        close_state = page.evaluate("""() => ({
+            dist: window.__fd.dist,
+            engagement: document.querySelector('#app').classList.contains('engagement-mode'),
+            pane: document.querySelector('#battle-pane').getBoundingClientRect().height / innerHeight
+        })""")
+        check("map: Engagement is the only authored close stop",
+              abs(close_state["dist"] - 28) < 0.5 and close_state["engagement"], str(close_state))
+        check("mobile: Engagement expands the battlefield", close_state["pane"] >= 0.73, str(close_state))
         check_hud_geometry(page, "close")
         page.screenshot(path=os.path.join(ART, "e2e_close.png"))
+        rail_before = page.evaluate("() => ({x: window.__fd.focus.x, z: window.__fd.focus.y})")
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx + 180, cy + 120, steps=6)
+        page.mouse.up()
+        rail_after = page.evaluate("() => ({x: window.__fd.focus.x, z: window.__fd.focus.y, o: window.__fd.railOffset})")
+        check("map: Engagement drag stays on the soft border rail",
+              abs(rail_after["o"]) <= 8.01 and (rail_after["x"] != rail_before["x"] or rail_after["z"] != rail_before["z"]),
+              str({"before": rail_before, "after": rail_after}))
         check("midgame: no console errors", len(errors2) == 0, "; ".join(errors2[:3]))
         ctx.close()
         browser.close()

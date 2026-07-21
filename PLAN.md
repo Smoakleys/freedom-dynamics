@@ -65,8 +65,9 @@ forward, and remain deterministic:
    AUTO sends each new batch to the front with the greatest unmet pressure.
 3. **Travel visibly.** Every wave retains class, count, origin, destination,
    ETA, and progress. Ground units convoy, aircraft sortie, missiles launch,
-   and orbital assets uplink. Strategic zoom shows routes/flow; operational and
-   close zoom show tiny fixed-world class models moving along them.
+   and orbital assets uplink. Command shows routes/flow; Theater shows moving
+   formations; Engagement shows tiny fixed-world class models fighting at the
+   selected border.
 4. **Arrive into a formation.** Only arrival increases the deployed class
    count at a specific front. Captures redeploy surviving formations forward;
    invalid destinations retarget predictably rather than disappear.
@@ -75,7 +76,7 @@ forward, and remain deterministic:
    suppression, and occupation ability determine damage and actual class
    losses there. The UI exposes fielded/in-transit totals and concise combat
    vitals without inventing individual persistent soldiers.
-6. **Show consequences.** At operational/close zoom, formation strength,
+6. **Show consequences.** At Theater/Engagement zoom, formation strength,
    enemy garrison health, incoming/outgoing damage, arrivals, losses, hold
    state, and counteroffensive pressure have visible board feedback. Effects
    explain state changes; they do not substitute for them.
@@ -84,10 +85,13 @@ forward, and remain deterministic:
    apply pressure at a real front and can create a temporary local setback,
    while the long-run empire remains a ratchet rather than an offline-punishment
    game.
-8. **One story at every zoom.** FAR answers where HQ, fronts, routes, pressure,
-   and ownership are. MID answers which formations are moving to which battle
-   and who is winning. CLOSE answers what unit classes are doing and why health
-   is changing. Money remains top-center; controls never fight the map.
+8. **One story in exactly three views.** COMMAND answers where HQ, fronts,
+   routes, pressure, and ownership are. THEATER answers which formations are
+   moving to which battle and who is winning. ENGAGEMENT is the only close
+   composition: it replaces strategic cartography with a local two-sided
+   border field and answers what unit classes are doing and why health changes.
+   Pinch may interpolate, but there are no extra authored Front/Battle stops.
+   Money remains top-center; controls never fight the map.
 9. **Idle-game clarity.** Buying, automating, researching, and routing remain
    at most two taps. A purchase creates visible movement within two seconds.
    Offline simulation advances the same production, transit, combat, and
@@ -132,7 +136,7 @@ tug-of-war, masses of tiny units, HUD overlays) — ours must be *better* and mu
 | 7 | Humor v1 | Baseline: joke names/flavor text on every unit, upgrade, hire, milestone. Extra system: **news chyron** over the battle reacting to real player actions. **v1.5:** random contract events, Fiscal-Year awards ceremony. |
 | 8 | Content v1 | **8 production lines, ~60 Days**, first prestige lands around Day 40–60 after a few real days of play. |
 | 9 | Visuals | **REVISED 2026-07-18 (Bridger, after 3 rejected iterations): "The Board" — a living Risk board.** Zoomed out: flat straight-down hand-crafted-looking map of bordered named territories (player gold w/ star stamps vs Adversary slate), burning stitched front seam through the contested territory, fog over unsurveyed board. Territory capture = whole region floods gold. Zoomed in: the printed map IS the ground; low-poly unit pieces (sourced from free CC0 packs — Kenney/Quaternius class, many types, faction tints) fight across the drawn border. Map cartography style must be art-matched to the chosen unit assets, and must read as DESIGNED, not procedural (organic coastlines, terrain glyphs, real typography). newhedge was a FUNCTIONAL reference only — never a visual one. |
-| 10 | Layout | **Battle top (~45%) always visible** with sector HUD + chyron; production lines in a draggable sheet below. Buy → see it land on the field instantly. **Camera (locked 2026-07-18):** free pinch-zoom/pan, straight-down at altitude, easing to a mild tilt when zoomed close — target ~60-70° from horizontal fully zoomed (mostly top-down, NEVER the steep oblique of v0.1/v0.2, never fully straight-on either). No autonomous drift while the player is watching; idle eases home to the contested territory. **Progression (locked): no "days" — territory expansion.** Sectors = named territories; conquering reveals more board (fog rollback). |
+| 10 | Layout | **Command/Theater keep the battlefield top (~58%)** with sector HUD + chyron and production in the draggable sheet below. **Engagement expands the battlefield to ~76%** and leaves production as a compact lower drawer. Buy → see real output depart HQ and later join its routed front. **Camera:** near-vertical at Command, readable at Theater, mostly top-down at Engagement; a soft rail keeps close pan along the live border with limited cross-front inspection, while pinch-out releases to Theater. No autonomous drift while the player is actively inspecting. **Progression (locked): no "days" — territory expansion.** Sectors = named territories; conquering reveals more board (fog rollback). |
 | 11 | Platform | **PWA first** (free hosting, add-to-home-screen on iPhone, offline service worker). Architecture keeps a **Capacitor** native wrap as a later packaging step (clean storage/audio abstractions, no PWA-only APIs). |
 | 12 | Title | **FREEDOM DYNAMICS.** At first launch you "incorporate" — company name generator with absurd suggestions (keep or reroll). |
 

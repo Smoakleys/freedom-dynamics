@@ -1,6 +1,7 @@
 // The Board renderer: flat map plane (canvas cartography), asset unit pieces
-// fighting along the contested border, free pan/zoom camera that stays
-// top-down at altitude and eases to a mild tilt up close.
+// fighting along the contested border. Three intentional views only:
+// Command, Theater, and Engagement. Continuous pinch interpolates between
+// them, but the composition never invents extra conceptual tiers.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -12,21 +13,24 @@ import { armyPower, frontInfos, activeFronts, visibleNations, homeWorldCenter, t
 import type { GameState, GameEvent, ReinforcementWave } from '../game/state';
 
 const REVEAL_STEPS = 2;          // conquest steps visible past the contested territory
-const UNIT_VIS_DIST = 48;        // camera distance where unit pieces appear
-const MIN_DIST = 11, MAX_DIST = 125;
-const ZOOM_LEVELS = [18, 30, 48, 76, 112];
+const ENGAGEMENT_DIST = 46;
+const UNIT_VIS_DIST = ENGAGEMENT_DIST;
+const MIN_DIST = 24, MAX_DIST = 125;
+const ZOOM_LEVELS = [28, 76, 112];
 
 // Line index → model file. Missing files fall back to primitive pieces.
 // 'Mech' is kitbashed in code, not loaded from disk.
 const FRIENDLY_MODELS = ['Soldier', 'ScoutCar', 'Drone', 'LightTank', 'Howitzer', 'Jet', 'MissileLauncher', '', 'Mech'];
 const ENEMY_MODELS = ['Soldier', 'Jeep', 'Helicopter', 'SuperTank'];
-const GOLD = new THREE.Color(0xd8a531);
+const GOLD = new THREE.Color(0xf0bd3f);
 const GOLD_DARK = new THREE.Color(0x8a6a1e);
-const SLATE = new THREE.Color(0x6c7280);
-const SLATE_DARK = new THREE.Color(0x3f434c);
+const SLATE = new THREE.Color(0xaeb8c7);
+const SLATE_DARK = new THREE.Color(0x515966);
 
 interface Piece {
   mesh: THREE.Object3D;
+  base: THREE.Mesh;
+  health: THREE.Mesh;
   slot: number;
   ord: number;    // ordinal within its faction — drives formation spread
   friendly: boolean;
@@ -44,6 +48,12 @@ interface TransitVisual {
   modelVersion: number;
 }
 
+interface FrontSample {
+  x: number; z: number;
+  nx: number; nz: number;
+  tx: number; tz: number;
+}
+
 export class BoardView {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -52,12 +62,23 @@ export class BoardView {
   private board: Board;
   private mapCanvas = document.createElement('canvas');
   private mapTex: THREE.CanvasTexture;
+  private mapPlaneMat: THREE.MeshLambertMaterial;
   private paintedStamp = -99;
   private hotTid = -1;
   private seam: THREE.Line;
   private seamGeo = new THREE.BufferGeometry();
   private seamGlow!: THREE.Mesh;
   private seamGlowGeo = new THREE.BufferGeometry();
+  private battleLayer = new THREE.Group();
+  private friendlyGround!: THREE.Mesh;
+  private enemyGround!: THREE.Mesh;
+  private noMansLand!: THREE.Mesh;
+  private friendlyTrench!: THREE.LineSegments;
+  private enemyTrench!: THREE.LineSegments;
+  private battleProps = new THREE.Group();
+  private engagementActive = false;
+  private railOffset = 0;
+  private formationFrame: FrontSample | null = null;
   private shadowMat!: THREE.MeshBasicMaterial;
   private shadowGeo!: THREE.PlaneGeometry;
   private pieces: Piece[] = [];
@@ -118,9 +139,10 @@ export class BoardView {
     this.mapTex = new THREE.CanvasTexture(this.mapCanvas);
     this.mapTex.colorSpace = THREE.SRGBColorSpace;
     this.mapTex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    this.mapPlaneMat = new THREE.MeshLambertMaterial({ map: this.mapTex });
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(BOARD_W, BOARD_H),
-      new THREE.MeshLambertMaterial({ map: this.mapTex })
+      this.mapPlaneMat
     );
     plane.rotation.x = -Math.PI / 2;
     this.scene.add(plane);
@@ -136,6 +158,7 @@ export class BoardView {
       new THREE.MeshBasicMaterial({ color: 0xffa030, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
     );
     this.scene.add(this.seamGlow);
+    this.buildBattlefield();
 
     // Shared blob-shadow texture for pieces.
     const shCv = document.createElement('canvas');
@@ -312,9 +335,11 @@ export class BoardView {
       const owned = new Set(gs.owned);
       const pts = frontLine(this.board, hot.tid, owned, gs.captureStamp, hot.progress);
       if (pts.length > 0) {
-        const mx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-        const my = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-        const w = gridToWorld(mx, my);
+        // frontLine can contain a long curling chain; its arithmetic centroid
+        // may sit nowhere near the actual line. Focus the authored engagement
+        // section at the chain midpoint where formations are staged.
+        const p = pts[Math.floor(pts.length * 0.5)];
+        const w = gridToWorld(p.x, p.y);
         return { x: w.x, z: w.z };
       }
       const t = this.board.territories.find(q => q.id === hot.tid);
@@ -323,6 +348,158 @@ export class BoardView {
     const home = this.board.territories.find(t => t.nation === this.board.homeNation) ?? this.board.territories[0];
     const w = gridToWorld(home.cx, home.cy);
     return { x: w.x, z: w.z };
+  }
+
+  private buildBattlefield(): void {
+    const terrainTexture = (base: string, mark: string, repeatX: number, repeatY: number) => {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 512;
+      const ctx = cv.getContext('2d')!;
+      ctx.fillStyle = base; ctx.fillRect(0, 0, 512, 512);
+      ctx.strokeStyle = mark; ctx.lineWidth = 2;
+      for (let i = 0; i < 72; i++) {
+        const x = (i * 83 + 31) % 512;
+        const y = (i * i * 37 + 67) % 512;
+        const len = 12 + (i * 19) % 54;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + len, y + ((i % 5) - 2) * 2); ctx.stroke();
+      }
+      ctx.fillStyle = mark;
+      for (let i = 0; i < 96; i++) {
+        const x = (i * 109 + 47) % 512;
+        const y = (i * 71 + 23) % 512;
+        ctx.fillRect(x, y, 1.5, 1.5);
+      }
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(repeatX, repeatY);
+      tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+      return tex;
+    };
+    const ground = (color: number, width: number, depth: number, texture: THREE.Texture) => {
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, depth),
+        new THREE.MeshBasicMaterial({ color, map: texture, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide })
+      );
+      mesh.rotation.x = -Math.PI / 2;
+      return mesh;
+    };
+    this.friendlyGround = ground(0xffffff, 110, 55, terrainTexture('#5b5138', 'rgba(229,190,90,0.045)', 24, 11));
+    this.enemyGround = ground(0xffffff, 110, 55, terrainTexture('#41434b', 'rgba(210,222,238,0.04)', 24, 11));
+    this.noMansLand = ground(0xffffff, 110, 1.15, terrainTexture('#282522', 'rgba(240,214,164,0.06)', 38, 1));
+    this.friendlyGround.position.set(0, 0.16, -28.075);
+    this.enemyGround.position.set(0, 0.17, 28.075);
+    this.noMansLand.position.set(0, 0.2, 0);
+    this.friendlyTrench = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xd5aa4a, transparent: true, opacity: 0, depthWrite: false })
+    );
+    this.enemyTrench = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xaeb8c7, transparent: true, opacity: 0, depthWrite: false })
+    );
+    this.battleLayer.add(
+      this.friendlyGround, this.enemyGround, this.noMansLand,
+      this.friendlyTrench, this.enemyTrench, this.battleProps
+    );
+    this.battleLayer.visible = false;
+    this.scene.add(this.battleLayer);
+
+    const trenchPositions: number[] = [];
+    for (let x = -52; x < 52; x += 8.5) trenchPositions.push(x, 0.32, 0, x + 5.5, 0.32, 0);
+    this.friendlyTrench.geometry.setAttribute('position', new THREE.Float32BufferAttribute(trenchPositions, 3));
+    this.enemyTrench.geometry.setAttribute('position', new THREE.Float32BufferAttribute(trenchPositions, 3));
+    this.friendlyTrench.position.z = -5.4;
+    this.enemyTrench.position.z = 5.4;
+
+    // A restrained kit of deterministic battlefield furniture. It follows the
+    // live seam, so the close view is local terrain rather than a rectangular
+    // texture pasted over the political map.
+    const craterMat = new THREE.MeshBasicMaterial({ color: 0x171716, transparent: true, opacity: 0.48, depthWrite: false });
+    const coverFriendly = new THREE.MeshLambertMaterial({ color: 0x766236 });
+    const coverEnemy = new THREE.MeshLambertMaterial({ color: 0x555b65 });
+    for (let i = 0; i < 18; i++) {
+      if (i < 10) {
+        const crater = new THREE.Mesh(new THREE.RingGeometry(0.1, 0.22 + (i % 3) * 0.035, 18), craterMat);
+        crater.rotation.x = -Math.PI / 2;
+        crater.position.set((i - 4.5) * 4.8, 0.24, (i % 2 === 0 ? -1 : 1) * (0.7 + (i % 3) * 0.8));
+        crater.userData.kind = 'crater';
+        this.battleProps.add(crater);
+      } else {
+        const friendly = i % 2 === 0;
+        const cover = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.16, 0.2), friendly ? coverFriendly : coverEnemy);
+        cover.position.set((i - 13.5) * 7.4, 0.31, friendly ? -4.3 - (i % 3) : 4.3 + (i % 3));
+        cover.rotation.y = (i % 3 - 1) * 0.18;
+        cover.userData.kind = 'cover';
+        cover.userData.friendly = friendly;
+        this.battleProps.add(cover);
+      }
+    }
+  }
+
+  private engagementBlend(): number {
+    // Theater is fully intact at 54; Engagement owns the composition by 40.
+    return 1 - smoothstep(40, 54, this.dist);
+  }
+
+  private frontSamples(
+    pts: { x: number; y: number }[], hot: FrontInfo, gs: GameState
+  ): FrontSample[] {
+    const field = depthField(this.board, hot.tid, new Set(gs.owned), gs.captureStamp);
+    const samples = pts.map((p, i) => {
+      const prev = pts[Math.max(0, i - 1)];
+      const next = pts[Math.min(pts.length - 1, i + 1)];
+      let tx = next.x - prev.x, tz = next.y - prev.y;
+      const tl = Math.hypot(tx, tz) || 1;
+      tx /= tl; tz /= tl;
+      let nx = -tz, nz = tx;
+      if (field) {
+        const k0 = Math.round(p.y) * GRID_W + Math.round(p.x);
+        const k1 = Math.round(p.y + nz * 5) * GRID_W + Math.round(p.x + nx * 5);
+        const d0 = field[k0] ?? 0;
+        const d1 = k1 >= 0 && k1 < field.length ? field[k1] : -1;
+        if (d1 < d0) { nx = -nx; nz = -nz; }
+      }
+      const w = gridToWorld(p.x, p.y);
+      return { x: w.x, z: w.z, nx, nz, tx, tz };
+    });
+    // The depth field decides faction side. Stabilize adjacent normals so a
+    // noisy edge sample cannot flip a quad across the whole battlefield.
+    for (let i = 1; i < samples.length; i++) {
+      if (samples[i - 1].nx * samples[i].nx + samples[i - 1].nz * samples[i].nz < 0) {
+        samples[i].nx *= -1; samples[i].nz *= -1;
+      }
+    }
+    return samples;
+  }
+
+  private updateBattlefield(pts: { x: number; y: number }[], hot: FrontInfo | null, gs: GameState): void {
+    const blend = this.engagementBlend();
+    const visible = blend > 0.015 && !!hot && pts.length > 1;
+    this.battleLayer.visible = visible;
+    if (!visible || !hot) { this.formationFrame = null; return; }
+    const samples = this.frontSamples(pts, hot, gs);
+    this.formationFrame = samples[Math.floor(samples.length * 0.5)];
+    let chosen = samples[Math.floor(samples.length * 0.5)], best = Infinity;
+    for (const s of samples) {
+      const d = (s.x - this.focus.x) ** 2 + (s.z - this.focus.y) ** 2;
+      if (d < best) { best = d; chosen = s; }
+    }
+    this.battleLayer.position.set(chosen.x, 0, chosen.z);
+    // Local +Z is the enemy direction; the clean encounter board tracks the
+    // border tangent while the camera moves along it.
+    this.battleLayer.rotation.y = Math.atan2(chosen.nx, chosen.nz);
+    (this.friendlyGround.material as THREE.MeshBasicMaterial).opacity = blend * 0.97;
+    (this.enemyGround.material as THREE.MeshBasicMaterial).opacity = blend * 0.97;
+    (this.noMansLand.material as THREE.MeshBasicMaterial).opacity = blend * 0.96;
+    (this.friendlyTrench.material as THREE.LineBasicMaterial).opacity = blend * 0.7;
+    (this.enemyTrench.material as THREE.LineBasicMaterial).opacity = blend * 0.64;
+
+    for (let i = 0; i < this.battleProps.children.length; i++) {
+      const prop = this.battleProps.children[i] as THREE.Mesh;
+      prop.visible = blend > 0.35;
+      if ((prop.material as THREE.Material).transparent) (prop.material as THREE.MeshBasicMaterial).opacity = blend * 0.48;
+    }
   }
 
   private strategicCenter(gs: GameState): { x: number; z: number } {
@@ -379,6 +556,7 @@ export class BoardView {
           this.focus.y += dy * scale;
         }
         this.clampFocus();
+        this.applyEngagementRail(false, true);
         this.positionCamera();
       } else if (this.pointers.size === 2) {
         const prevMid = this.pinchMid;
@@ -399,6 +577,8 @@ export class BoardView {
             this.focus.y += anchor.z - after.z;
           }
           this.clampFocus();
+          this.applyEngagementRail(false, true);
+          this.syncViewMode();
           this.positionCamera();
         }
         this.pinchDist = d;
@@ -420,13 +600,14 @@ export class BoardView {
           }
         }
       } else if (!this.gestureHadPinch && this.pointers.size === 1 && moved < 14) {
-        // Double-tap: quick zoom toggle between battle and board altitude.
+        // Double-tap: toggle directly between Theater and Engagement. There
+        // are only three product views; no hidden close-stop ladder.
         const now = performance.now();
         const near = Math.hypot(e.clientX - this.lastTap.x, e.clientY - this.lastTap.y) < 40;
         if (now - this.lastTap.t < 320 && near) {
           const w = this.pickWorld(e.clientX, e.clientY);
           if (w && this.dist > 40) { this.focus.set(w.x, w.z); this.clampFocus(); }
-          this.distTarget = this.dist > 40 ? 24 : 92;
+          this.distTarget = this.dist > ENGAGEMENT_DIST ? 28 : 76;
           this.lastTap.t = -999;
         } else {
           this.lastTap = { t: now, x: e.clientX, y: e.clientY };
@@ -456,6 +637,7 @@ export class BoardView {
   }
 
   private setZoomAt(clientX: number, clientY: number, requested: number): void {
+    const wasEngagement = this.dist < ENGAGEMENT_DIST;
     const anchor = this.pickWorld(clientX, clientY);
     const nextDist = clamp(requested, MIN_DIST, MAX_DIST);
     this.dist = nextDist;
@@ -467,6 +649,13 @@ export class BoardView {
       this.focus.y += anchor.z - after.z;
     }
     this.clampFocus();
+    if (!wasEngagement && this.dist < ENGAGEMENT_DIST) {
+      const battle = this.contestedCenter(this.currentGs);
+      this.focus.set(battle.x, battle.z);
+      this.applyEngagementRail(true);
+    }
+    else if (this.dist < ENGAGEMENT_DIST) this.applyEngagementRail(false, true);
+    this.syncViewMode();
     this.positionCamera();
   }
 
@@ -487,9 +676,10 @@ export class BoardView {
   focusBattle(): void {
     const target = this.contestedCenter(this.currentGs);
     this.focus.set(target.x, target.z);
-    this.distTarget = Math.min(this.dist, 46);
+    this.distTarget = 28;
     this.lastTouch = this.time;
     this.clampFocus();
+    this.applyEngagementRail(true);
   }
 
   // Public: arm a one-shot map tap (strike targeting, SEND HERE placement).
@@ -755,6 +945,7 @@ export class BoardView {
       f.position.set(t.x, 0, t.z);
       f.rotation.y = Math.sin(this.time * 1.5 + i) * 0.1;
       f.scale.setScalar(clamp(this.dist / 30, 1, 2.4));
+      f.visible = this.dist >= 54;
     }
   }
 
@@ -867,14 +1058,14 @@ export class BoardView {
       visual.bead.visible = this.dist >= 65;
       // Route is strategic/operational symbology. Inside the battle frame it
       // would read as a giant weapon tracer and compete with real units.
-      visual.route.visible = this.dist > 42 && !routedTargets.has(wave.targetTid);
+      visual.route.visible = this.dist > 54 && !routedTargets.has(wave.targetTid);
       routedTargets.add(wave.targetTid);
       (visual.route.material as THREE.MeshBasicMaterial).opacity = this.dist > 76 ? 0.82 : 0.62;
     }
     const pulse = 1 + Math.sin(this.time * 2.6) * 0.08;
     const strategicScale = clamp(this.dist / 68, 0.8, 1.8);
     this.hqMarker.scale.setScalar(strategicScale * pulse);
-    this.hqMarker.visible = this.dist > 24;
+    this.hqMarker.visible = this.dist > 54;
   }
 
   // Every front gets a visible skirmish — enemy garrison clusters facing your
@@ -924,7 +1115,7 @@ export class BoardView {
     }
     for (const [tid, grp] of this.pickets) {
       if (!live.has(tid)) { this.scene.remove(grp); this.pickets.delete(tid); continue; }
-      grp.visible = this.dist < UNIT_VIS_DIST;
+      grp.visible = this.dist >= ENGAGEMENT_DIST && this.dist < 88;
       grp.scale.setScalar(1);
     }
   }
@@ -937,9 +1128,51 @@ export class BoardView {
     this.focus.y = clamp(this.focus.y, -BOARD_H * (this.dist > 80 ? 0.22 : 0.5), BOARD_H * (this.dist > 80 ? 0.22 : 0.5));
   }
 
+  private applyEngagementRail(snap: boolean, captureOffset = false): void {
+    if (this.dist >= ENGAGEMENT_DIST) return;
+    const hot = this.hotFront(this.currentGs);
+    if (!hot) return;
+    const pts = frontLine(this.board, hot.tid, new Set(this.currentGs.owned), this.currentGs.captureStamp, hot.progress);
+    if (pts.length < 2) return;
+    let bestD2 = Infinity, bestX = this.focus.x, bestZ = this.focus.y, bestNx = 0, bestNz = 1;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const aw = gridToWorld(pts[i].x, pts[i].y);
+      const bw = gridToWorld(pts[i + 1].x, pts[i + 1].y);
+      const vx = bw.x - aw.x, vz = bw.z - aw.z;
+      const vv = vx * vx + vz * vz || 1;
+      const t = clamp(((this.focus.x - aw.x) * vx + (this.focus.y - aw.z) * vz) / vv, 0, 1);
+      const x = aw.x + vx * t, z = aw.z + vz * t;
+      const dx = this.focus.x - x, dz = this.focus.y - z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) {
+        bestD2 = d2; bestX = x; bestZ = z;
+        const vl = Math.sqrt(vv);
+        bestNx = -vz / vl; bestNz = vx / vl;
+      }
+    }
+    if (snap) this.railOffset = 0;
+    else if (captureOffset) {
+      this.railOffset = clamp((this.focus.x - bestX) * bestNx + (this.focus.y - bestZ) * bestNz, -8, 8);
+    }
+    this.focus.set(bestX + bestNx * this.railOffset, bestZ + bestNz * this.railOffset);
+  }
+
+  private syncViewMode(): void {
+    const active = this.dist < ENGAGEMENT_DIST;
+    if (active === this.engagementActive) return;
+    this.engagementActive = active;
+    if (!active) this.railOffset = 0;
+    const app = document.getElementById('app');
+    app?.classList.toggle('engagement-mode', active);
+    const pane = document.getElementById('battle-pane') as HTMLElement | null;
+    if (pane) pane.style.height = '';
+    const hint = document.querySelector('#map-tools span');
+    if (hint) hint.textContent = active ? 'DRAG ALONG BORDER · PINCH OUT' : '1-FINGER PAN · PINCH';
+  }
+
   private positionCamera(): void {
-    const zoomT = 1 - clamp((this.dist - MIN_DIST) / (MAX_DIST - MIN_DIST), 0, 1);
-    const pitch = THREE.MathUtils.degToRad(88 - zoomT * 26);
+    const zoomT = 1 - clamp((this.dist - 30) / (112 - 30), 0, 1);
+    const pitch = THREE.MathUtils.degToRad(87 - zoomT * 9 - this.engagementBlend() * 4);
     const horiz = Math.cos(pitch) * this.dist;
     const py = Math.sin(pitch) * this.dist;
     this.camera.position.set(this.focus.x, py, this.focus.y + horiz);
@@ -977,12 +1210,15 @@ export class BoardView {
       this.rebuildMapDetails(gs);
       this.rebuildBorders(gs);
     }
-    // Deliberate zoom ladder. Strategic altitude shows nations only; the
-    // territory chips and physical cartography arrive progressively, then text
-    // clears out again inside the close battle frame.
-    this.nationLabelLayer.visible = this.dist > 68;
-    this.territoryLabelLayer.visible = this.dist > 28 && this.dist < 78;
-    this.detailLayer.visible = this.dist > 22 && this.dist < 68;
+    // Three views, no extra named tiers. Command owns nation-scale labels;
+    // Theater owns territory/cartographic detail; Engagement clears the board
+    // language and replaces it with local battlefield terrain.
+    const battleBlend = this.engagementBlend();
+    this.nationLabelLayer.visible = this.dist > 88;
+    this.territoryLabelLayer.visible = this.dist >= 54 && this.dist <= 92;
+    this.detailLayer.visible = this.dist >= 54 && this.dist < 90;
+    this.borderLayer.visible = battleBlend < 0.2;
+    this.mapPlaneMat.color.setScalar(1 - battleBlend * 0.42);
     const suppressUnderHud = (layer: THREE.Group, edgeLimit: number) => {
       if (!layer.visible) return;
       const v = new THREE.Vector3();
@@ -1026,11 +1262,13 @@ export class BoardView {
       this.seamGlowGeo.setIndex(idxArr);
       this.seamGlowGeo.attributes.position.needsUpdate = true;
       this.seam.visible = this.seamGlow.visible = true;
-      (this.seam.material as THREE.LineBasicMaterial).opacity = 0.7 + Math.sin(time * 2.5) * 0.12;
-      (this.seamGlow.material as THREE.MeshBasicMaterial).opacity = 0.2 + Math.sin(time * 2.1) * 0.07;
+      (this.seam.material as THREE.LineBasicMaterial).opacity = (0.7 + Math.sin(time * 2.5) * 0.12) * (1 - battleBlend * 0.78);
+      (this.seamGlow.material as THREE.MeshBasicMaterial).opacity = (0.2 + Math.sin(time * 2.1) * 0.07) * (1 - battleBlend * 0.82);
     } else {
       this.seam.visible = this.seamGlow.visible = false;
     }
+
+    this.updateBattlefield(pts, hot, gs);
 
     // Battle pieces along the hot seam.
     this.updatePieces(gs, pts, hot, dt);
@@ -1184,27 +1422,31 @@ export class BoardView {
     // continent when surveying from altitude (keeps the board centered).
     const battleCenter = this.contestedCenter(gs);
     const stranded = this.dist < 82 && Math.hypot(this.focus.x - battleCenter.x, this.focus.y - battleCenter.z) > this.dist * 0.95;
-    if (this.dist > 102 || stranded || time - this.lastTouch > 8) {
+    if (this.dist > 102 || stranded || (this.dist >= ENGAGEMENT_DIST && time - this.lastTouch > 10)) {
       const home = this.dist > 95 ? this.strategicCenter(gs) : battleCenter;
       const focusEase = this.dist > 102 || stranded ? 2.8 : 0.8;
       this.focus.x += (home.x - this.focus.x) * Math.min(1, dt * focusEase);
       this.focus.y += (home.z - this.focus.y) * Math.min(1, dt * focusEase);
     }
     this.clampFocus();
+    this.applyEngagementRail(false);
 
-    // Pitch: near-vertical at altitude, easing to ~62° from horizontal up close.
-    const zoomT = 1 - clamp((this.dist - MIN_DIST) / (MAX_DIST - MIN_DIST), 0, 1);
-    const pitch = THREE.MathUtils.degToRad(88 - zoomT * 26); // 88° → 62°
+    // Near-vertical Command table, readable Theater, then one decisive tilt
+    // into Engagement. Terrain—not extra close stops—does the visual work.
+    const zoomT = 1 - clamp((this.dist - 30) / (112 - 30), 0, 1);
+    const pitch = THREE.MathUtils.degToRad(87 - zoomT * 9 - this.engagementBlend() * 4);
     const horiz = Math.cos(pitch) * this.dist;
     const py = Math.sin(pitch) * this.dist;
     this.camera.position.set(this.focus.x, py, this.focus.y + horiz);
     this.camera.lookAt(this.focus.x, 0, this.focus.y);
+    this.syncViewMode();
 
     this.renderer.render(this.scene, this.camera);
   }
 
   private updatePieces(gs: GameState, pts: { x: number; y: number }[], hot: FrontInfo | null, dt: number): void {
     const show = this.dist < UNIT_VIS_DIST && pts.length > 0 && hot !== null;
+    const formationSamples = show && hot ? this.frontSamples(pts, hot, gs) : [];
     // Desired piece counts: sqrt-scaled armies, capped for phone perf, and
     // squeezed down when the seam shrinks to a small pocket.
     const room = show ? clamp(pts.length / 55, 0.3, 1) : 0;
@@ -1215,10 +1457,13 @@ export class BoardView {
         const n = Math.round(Math.min(caps[i], Math.sqrt(hot.unitsByLine[i]) * (i === 0 ? 1.6 : 0.8)) * room);
         for (let k = 0; k < n; k++) want.push({ friendly: true, line: i });
       }
+      const representativeLine = hot.unitsByLine.findIndex(n => n > 0);
+      while (want.length < 8 && representativeLine >= 0) want.push({ friendly: true, line: representativeLine });
       // Defenders scale with the remaining garrison. The close frame must
       // NEVER be a one-sided parade: hold-phase keeps enemy remnants in shot,
       // and a FINAL WAVE floods the field.
       let en = Math.round(Math.min(20, 4.5 * Math.pow(Math.max(hot.garrison, 2), 0.22)) * room);
+      en = Math.max(en, 8);
       if (hot.garrison <= 0) en = Math.max(en, Math.round(6 * room) + 3);
       if (gs.wave) en = Math.max(en, Math.round(10 * room) + 4);
       for (let k = 0; k < en; k++) want.push({ friendly: false, line: k % ENEMY_MODELS.length });
@@ -1255,6 +1500,10 @@ export class BoardView {
         excess--; changed = true;
       }
     }
+    // Revealing an already-fielded formation is not a reinforcement arrival:
+    // snap that first visual cohort onto the line. Only later count increases
+    // march in from the rear.
+    const revealingFormation = show && this.pieces.length === 0;
     // Add reinforcements, spawning behind their own side.
     for (const [k, need] of wantCount) {
       const have = haveCount.get(k) ?? 0;
@@ -1265,6 +1514,27 @@ export class BoardView {
         const name = friendly ? FRIENDLY_MODELS[line] : ENEMY_MODELS[line];
         const mesh = name ? this.tinted(name, friendly) : this.fallbackPiece(friendly);
         const flies = friendly ? (line === 2 || line === 5) : line === 2;
+        const footprint = new THREE.Mesh(
+          new THREE.CircleGeometry(0.2, 24),
+          new THREE.MeshBasicMaterial({ color: 0x101319, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide })
+        );
+        footprint.rotation.x = -Math.PI / 2;
+        footprint.position.y = 0.07;
+        const base = new THREE.Mesh(
+          new THREE.RingGeometry(0.23, 0.31, 24),
+          new THREE.MeshBasicMaterial({ color: friendly ? 0xffcf55 : 0xdce4ee, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide })
+        );
+        base.rotation.x = -Math.PI / 2;
+        base.position.y = 0.075;
+        const health = new THREE.Mesh(
+          new THREE.RingGeometry(0.35, 0.395, 32),
+          new THREE.MeshBasicMaterial({ color: 0x78d37e, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide })
+        );
+        health.rotation.x = -Math.PI / 2;
+        health.rotation.z = Math.PI * 0.5;
+        health.position.y = 0.085;
+        health.visible = false;
+        mesh.add(footprint, base, health);
         const sh = new THREE.Mesh(this.shadowGeo, this.shadowMat);
         sh.rotation.x = -Math.PI / 2;
         sh.position.y = 0.06;
@@ -1272,12 +1542,13 @@ export class BoardView {
         if (flies) mesh.userData.shadow = sh;
         this.scene.add(mesh);
         const piece: Piece = {
-          mesh, slot: this.pieces.length, ord: 0, friendly, line,
+          mesh, base, health, slot: this.pieces.length, ord: 0, friendly, line,
           x: 0, z: 0, tx: 0, tz: 0, phase: Math.random() * Math.PI * 2
         };
         this.pieces.push(piece);
         // Snap to formation, then displace toward its own rear so it marches in.
-        this.assignSlot(piece, pts, gs, hot, true);
+        this.assignSlot(piece, pts, gs, hot, formationSamples, true);
+        if (revealingFormation) { changed = true; continue; }
         const hc = this.ensureHomeCenter();
         let dx = hc.x - piece.tx, dz = hc.z - piece.tz;
         const dl = Math.hypot(dx, dz) || 1;
@@ -1295,9 +1566,14 @@ export class BoardView {
       for (const p of this.pieces) p.ord = p.friendly ? fi++ : ei++;
     }
 
+    const lastFriendlyOrd = new Map<number, number>();
+    for (const p of this.pieces) {
+      if (p.friendly) lastFriendlyOrd.set(p.line, Math.max(lastFriendlyOrd.get(p.line) ?? -1, p.ord));
+    }
+
     // March pieces toward their formation slots along the seam.
     for (const p of this.pieces) {
-      this.assignSlot(p, pts, gs, hot, false);
+      this.assignSlot(p, pts, gs, hot, formationSamples, false);
       const dx = p.tx - p.x, dz = p.tz - p.z;
       const d = Math.hypot(dx, dz);
       if (d > 0.05) {
@@ -1317,6 +1593,22 @@ export class BoardView {
       // invisible from near-top-down and aircraft read as parked (B3).
       const shadow = p.mesh.userData.shadow as THREE.Mesh | undefined;
       if (shadow) shadow.position.y = -bob + 0.06;
+      p.base.position.y = -bob + 0.075;
+      p.health.position.y = -bob + 0.085;
+      let healthRatio = 1;
+      if (hot) {
+        if (p.friendly) {
+          const units = Math.max(0, hot.unitsByLine[p.line] ?? 0);
+          const fractional = units - Math.floor(units);
+          if (p.ord === lastFriendlyOrd.get(p.line) && fractional > 0.025 && fractional < 0.975) healthRatio = fractional;
+        } else {
+          const formationRatio = clamp(hot.garrison / Math.max(hot.strength, 1), 0.06, 1);
+          healthRatio = clamp(formationRatio + ((p.ord % 5) - 2) * 0.055, 0.06, 1);
+        }
+      }
+      p.health.visible = healthRatio < 0.94;
+      p.health.geometry.setDrawRange(0, Math.max(6, Math.floor(32 * healthRatio) * 6));
+      (p.health.material as THREE.MeshBasicMaterial).color.setHex(healthRatio < 0.3 ? 0xff5c46 : healthRatio < 0.65 ? 0xf4b942 : 0x78d37e);
       // Units are FIXED world scale — they live in the world, not the UI.
       // Zoom out and they genuinely shrink away (Bridger's rule).
       const jitterScale = 0.74 + ((p.slot * 31) % 19) / 100;
@@ -1324,29 +1616,20 @@ export class BoardView {
     }
   }
 
-  private assignSlot(p: Piece, pts: { x: number; y: number }[], gs: GameState, hot: FrontInfo | null, snap: boolean): void {
+  private assignSlot(p: Piece, pts: { x: number; y: number }[], gs: GameState, hot: FrontInfo | null, samples: FrontSample[], snap: boolean): void {
     if (pts.length === 0 || !hot) return;
     // Spread pieces along the whole seam with a stride, wrapping into deeper
     // ranks when the faction outnumbers the seam's slots. Each faction spreads
     // independently so both sides line the entire front.
-    const stride = 3;
-    const ai = Math.min(pts.length - 1, (p.ord * stride) % pts.length);
-    const wrapRank = Math.floor((p.ord * stride) / pts.length);
+    // Engagement is a local encounter, not the entire national frontier in
+    // one shot. Keep the representative formation inside a readable window;
+    // the rail moves that window along the larger border.
+    const stride = 1;
+    const spread = p.ord === 0 ? 0 : Math.ceil(p.ord / 2) * (p.ord % 2 === 0 ? -1 : 1);
+    const rawIndex = Math.floor(pts.length * 0.5) + spread * stride;
+    const ai = Math.round(clamp(rawIndex, 0, pts.length - 1));
+    const wrapRank = Math.floor(Math.abs(spread * stride) / Math.max(pts.length * 0.72, 1));
     const anchor = pts[ai];
-    const next = pts[Math.min(pts.length - 1, ai + 1)];
-    // Perpendicular to the local seam direction; orient it toward enemy ground
-    // by checking which way the territory's depth field increases.
-    let nx = -(next.y - anchor.y), ny = next.x - anchor.x;
-    const nl = Math.hypot(nx, ny) || 1;
-    nx /= nl; ny /= nl;
-    const field = depthField(this.board, hot.tid, new Set(gs.owned), gs.captureStamp);
-    if (field) {
-      const k0 = Math.round(anchor.y) * GRID_W + Math.round(anchor.x);
-      const k1 = Math.round(anchor.y + ny * 5) * GRID_W + Math.round(anchor.x + nx * 5);
-      const d0 = field[k0] ?? 0;
-      const d1 = k1 >= 0 && k1 < field.length ? field[k1] : -1;
-      if (d1 < d0) { nx = -nx; ny = -ny; } // make (nx,ny) point into enemy ground
-    }
     // Minimum contact separation keeps opposing pieces from interpenetrating
     // at the seam (round-5: soldier standing inside a tank hull).
     const sign = p.friendly ? -1 : 1;
@@ -1356,6 +1639,22 @@ export class BoardView {
       : 3.4;
     const standoff = (baseStandoff + wrapRank * 1.6) * sign;
     const jx = ((p.slot * 37) % 13 - 6) * 0.34;
+    if (this.formationFrame) {
+      // Engagement is a deliberately local encounter. Stage both factions on
+      // opposite sides of one shared border frame so their silhouettes and
+      // fire lanes stay in the same readable shot.
+      const f = this.formationFrame;
+      const along = spread * 0.52 + jx * 0.12;
+      const depth = standoff / 3;
+      p.tx = f.x + f.tx * along + f.nx * depth;
+      p.tz = f.z + f.tz * along + f.nz * depth;
+      if (snap) { p.x = p.tx; p.z = p.tz; }
+      return;
+    }
+    // Fallback for a transient frame rebuild.
+    const sample = samples[ai];
+    const nx = sample?.nx ?? 0;
+    const ny = sample?.nz ?? 1;
     const gx = anchor.x + nx * standoff + jx;
     const gy = anchor.y + ny * standoff;
     const w = gridToWorld(gx, gy);
@@ -1366,4 +1665,9 @@ export class BoardView {
 
 function clamp(v: number, a: number, b: number): number {
   return Math.min(b, Math.max(a, v));
+}
+
+function smoothstep(a: number, b: number, v: number): number {
+  const t = clamp((v - a) / Math.max(b - a, 0.0001), 0, 1);
+  return t * t * (3 - 2 * t);
 }
