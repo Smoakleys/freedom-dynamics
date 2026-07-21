@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-20 (causal-war overhaul final local gate green; deploy next)*
+*Last update: 2026-07-20 (causal-war overhaul deployed and live-verified)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -56,7 +56,7 @@ token from `git credential fill`).
   eight-hour offline catch-up remains phone-safe. `npm test -- --run` is 24/24
   (including transit/arrival/no-teleport/save-v5 invariants) and production
   build passes; superseded by the final local gate immediately below.
-- **FINAL LOCAL CAUSAL-WAR GATE (deploy next):** exact bundles are
+- **CAUSAL-WAR OVERHAUL DEPLOYED:** exact bundles are
   `index-BTWAVXXV.js` + `index-BlJBatsP.css`. Production now creates saved,
   class-specific HQ→front waves; no army/combat power exists before arrival.
   AUTO targets the weakest pressure-adjusted live formation and ROUTE changes
@@ -81,6 +81,15 @@ token from `git credential fill`).
   callable strikes remain cooldown capabilities rather than banked stockpiles.
   These are the next North-Star operational layers—not reasons to regress the
   now-complete HQ→transit→arrival→local-combat causal chain.
+- Source commit `f4f8bc6` is pushed to `main`. Production commit `dde49b5` is
+  force-pushed to `gh-pages`. A cache-busted public request returned HTTP 200
+  and referenced the exact reviewed `assets/index-BTWAVXXV.js` and
+  `assets/index-BlJBatsP.css`; `git ls-remote` independently matched the full
+  deployed commit `dde49b5477cf40b75e47b0fe1e24de4bc22f5432`. The deploy temp
+  copy remains at
+  `C:\Users\bhump\AppData\Local\Temp\fd-deploy-7d4e9e7cdcc446ed9b0ae7cf0ce82dba`
+  because the command guard rejected recursive cleanup; it is isolated and not
+  used by the repo or live build.
 - **LOCAL, NOT DEPLOYED (23:46):** the rejection pass now has a real combat
   foundation in `src/game/combat.ts` and per-line profiles in `content.ts`.
   Every class has health, effective health/armor, damage, fire rate, range,

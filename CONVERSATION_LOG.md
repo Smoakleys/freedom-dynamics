@@ -271,3 +271,9 @@
   E2E assertions pass with zero console errors. Final far/mid/close artifacts
   pass the full composition gate. Deploy is next; remaining North-Star depth is
   explicitly front-to-front travel, territory-retaking waves, and stockpiles.
+- Deployment completed and verified. Source `f4f8bc6` is on `main`; production
+  `dde49b5477cf40b75e47b0fe1e24de4bc22f5432` is on `gh-pages`. Cache-busted
+  live HTML returned HTTP 200 with exact assets `index-BTWAVXXV.js` and
+  `index-BlJBatsP.css`, while `git ls-remote` matched the deployed commit. The
+  isolated generated deploy directory was intentionally left in the Windows
+  temp folder after the safety guard rejected recursive cleanup.
