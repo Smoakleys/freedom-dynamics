@@ -8,8 +8,8 @@ import { Board, depthField, frontLine, gridToWorld, GRID_W, BOARD_W, BOARD_H } f
 import { paintBoard, sharedBorderChains } from './board/paint';
 import { Effects } from './effects';
 import { LINES, capturedName } from '../game/content';
-import { armyPower, frontInfos, activeFronts, visibleNations, type FrontInfo } from '../game/war';
-import type { GameState, GameEvent } from '../game/state';
+import { armyPower, frontInfos, activeFronts, visibleNations, homeWorldCenter, type FrontInfo } from '../game/war';
+import type { GameState, GameEvent, ReinforcementWave } from '../game/state';
 
 const REVEAL_STEPS = 2;          // conquest steps visible past the contested territory
 const UNIT_VIS_DIST = 48;        // camera distance where unit pieces appear
@@ -34,6 +34,14 @@ interface Piece {
   x: number; z: number;
   tx: number; tz: number;
   phase: number;
+}
+
+interface TransitVisual {
+  group: THREE.Group;
+  bead: THREE.Mesh;
+  route: THREE.Mesh;
+  line: number;
+  modelVersion: number;
 }
 
 export class BoardView {
@@ -86,10 +94,10 @@ export class BoardView {
   private territoryLabelLayer = new THREE.Group();
   private detailLayer = new THREE.Group();
   private borderLayer = new THREE.Group();
-  private convoys: { mesh: THREE.Object3D; x: number; z: number; tx: number; tz: number }[] = [];
+  private transits = new Map<number, TransitVisual>();
+  private hqMarker = new THREE.Group();
   private chevrons = new Map<number, THREE.Mesh>();
   private pickets = new Map<number, THREE.Group>();
-  private convoyAcc = 0;
   private homeCenter: { x: number; z: number } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, gs: GameState, board: Board) {
@@ -144,6 +152,7 @@ export class BoardView {
 
     this.effects = new Effects(this.scene);
     this.loadModels();
+    this.buildHqMarker();
     this.setupControls();
 
     const t = this.strategicCenter(gs);
@@ -259,11 +268,34 @@ export class BoardView {
     return g;
   }
 
+  private buildHqMarker(): void {
+    const hq = this.ensureHomeCenter();
+    const gold = new THREE.MeshBasicMaterial({ color: 0xffcb55, transparent: true, opacity: 0.9, depthWrite: false });
+    const dark = new THREE.MeshBasicMaterial({ color: 0x70551b, transparent: true, opacity: 0.65, depthWrite: false });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.15, 0.1, 5, 48), gold);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.16;
+    const inner = new THREE.Mesh(new THREE.RingGeometry(0.52, 0.72, 6), gold);
+    inner.rotation.x = -Math.PI / 2;
+    inner.position.y = 0.2;
+    const pad = new THREE.Mesh(new THREE.CircleGeometry(1.35, 32), dark);
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.y = 0.11;
+    this.hqMarker.add(pad, ring, inner);
+    this.hqMarker.position.set(hq.x, 0, hq.z);
+    this.scene.add(this.hqMarker);
+  }
+
   // Where the fighting is hottest: the front drawing the most committed force
   // (sticky so the camera doesn't ping-pong between similar fronts).
   private hotFront(gs: GameState): FrontInfo | null {
     const fronts = frontInfos(this.board, gs);
     if (fronts.length === 0) return null;
+    const counterattack = gs.wave ? fronts.find(f => f.tid === gs.wave!.targetTid) : null;
+    if (counterattack) {
+      this.hotTid = counterattack.tid;
+      return counterattack;
+    }
     // Prefer fronts with a LIVE garrison — a hold-phase parade with no enemy
     // is not a battle worth pointing the camera at (reviewer round 1).
     const score = (f: FrontInfo) => f.committed * (f.garrison > 0 ? 1 : 0.1);
@@ -685,8 +717,8 @@ export class BoardView {
       }));
       this.borderLayer.add(lines);
     };
-    add(internal, 0x25323a, 0.42);
-    add(national, 0x111920, 0.82);
+    add(internal, 0x25323a, 0.24);
+    add(national, 0x111920, 0.62);
     this.scene.add(this.borderLayer);
   }
 
@@ -726,57 +758,123 @@ export class BoardView {
     }
   }
 
-  // Ambient production made visible: convoys roll from the homeland to the
-  // hottest front, at every altitude. Pure theater — no supply mechanic.
+  // The physical origin of every delivery. This is intentionally stable in
+  // world space: the label can declutter by zoom, but the HQ pad never moves.
   private ensureHomeCenter(): { x: number; z: number } {
-    if (!this.homeCenter) {
-      const home = this.board.territories.filter(t => t.nation === this.board.homeNation);
-      const cx = home.reduce((s, t) => s + t.cx, 0) / Math.max(home.length, 1);
-      const cy = home.reduce((s, t) => s + t.cy, 0) / Math.max(home.length, 1);
-      this.homeCenter = (({ x, z }) => ({ x, z }))(gridToWorld(cx, cy));
-    }
+    if (!this.homeCenter) this.homeCenter = homeWorldCenter(this.board);
     return this.homeCenter;
   }
 
-  private updateConvoys(gs: GameState, hot: FrontInfo | null, dt: number): void {
-    this.ensureHomeCenter();
-    const producing = gs.lines.some(l => l.owned > 0 && (l.hired || l.running));
-    if (this.homeCenter && hot && producing && this.models.has('ScoutCar')) {
-      this.convoyAcc += dt;
-      if (this.convoyAcc > 5 && this.convoys.length < 7) {
-        this.convoyAcc = 0;
-        const t = this.board.territories.find(q => q.id === hot.tid);
-        if (t) {
-          const dest = gridToWorld(t.cx, t.cy);
-          const mesh = this.tinted('ScoutCar', true);
-          mesh.position.set(this.homeCenter.x, 0, this.homeCenter.z);
-          this.scene.add(mesh);
-          this.convoys.push({
-            mesh,
-            x: this.homeCenter.x + (Math.random() - 0.5) * 8,
-            z: this.homeCenter.z + (Math.random() - 0.5) * 8,
-            tx: dest.x + (Math.random() - 0.5) * 6,
-            tz: dest.z + (Math.random() - 0.5) * 6
-          });
-        }
+  private transitPoint(wave: ReinforcementWave, p: number): THREE.Vector3 {
+    const dx = wave.to.x - wave.from.x, dz = wave.to.z - wave.from.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const side = wave.id % 2 === 0 ? 1 : -1;
+    const bow = Math.min(8, len * 0.12) * Math.sin(Math.PI * p) * side;
+    const role = LINES[wave.line]?.combat.role;
+    const altitude = role === 'orbital' ? 3.2 * Math.sin(Math.PI * p)
+      : role === 'air' ? 1.35
+      : role === 'missile' ? 0.65 + 1.1 * Math.sin(Math.PI * p)
+      : 0.12;
+    return new THREE.Vector3(
+      wave.from.x + dx * p + (-dz / len) * bow,
+      altitude,
+      wave.from.z + dz * p + (dx / len) * bow
+    );
+  }
+
+  private makeTransit(wave: ReinforcementWave): TransitVisual {
+    const group = new THREE.Group();
+    const role = LINES[wave.line]?.combat.role;
+    const modelName = FRIENDLY_MODELS[wave.line];
+    const shown = clamp(Math.ceil(Math.sqrt(Math.max(wave.count, 1)) / 3), 1, 3);
+    for (let i = 0; i < shown; i++) {
+      let mesh: THREE.Object3D;
+      if (role === 'orbital') {
+        mesh = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.28, 0),
+          new THREE.MeshBasicMaterial({ color: 0xffdc79 })
+        );
+      } else {
+        mesh = modelName ? this.tinted(modelName, true) : this.fallbackPiece(true);
+      }
+      mesh.position.set((i - (shown - 1) / 2) * 0.58, 0, (i % 2) * -0.35);
+      group.add(mesh);
+    }
+    const routePoints: THREE.Vector3[] = [];
+    for (let i = 0; i <= 24; i++) {
+      const p = this.transitPoint(wave, i / 24);
+      p.y = 0.28;
+      routePoints.push(p);
+    }
+    const ribbon: number[] = [], indices: number[] = [];
+    for (let i = 0; i < routePoints.length; i++) {
+      const prev = routePoints[Math.max(0, i - 1)], next = routePoints[Math.min(routePoints.length - 1, i + 1)];
+      const dx = next.x - prev.x, dz = next.z - prev.z;
+      const dl = Math.hypot(dx, dz) || 1;
+      const nx = -dz / dl * 0.16, nz = dx / dl * 0.16;
+      ribbon.push(routePoints[i].x + nx, 0.28, routePoints[i].z + nz);
+      ribbon.push(routePoints[i].x - nx, 0.28, routePoints[i].z - nz);
+      if (i < routePoints.length - 1) {
+        const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+        indices.push(a, b, c, b, d, c);
       }
     }
-    for (let i = this.convoys.length - 1; i >= 0; i--) {
-      const c = this.convoys[i];
-      const dx = c.tx - c.x, dz = c.tz - c.z;
-      const d = Math.hypot(dx, dz);
-      if (d < 1.2) {
-        this.scene.remove(c.mesh);
-        this.convoys.splice(i, 1);
-        continue;
-      }
-      const step = dt * 5.5;
-      c.x += dx / d * step;
-      c.z += dz / d * step;
-      c.mesh.position.set(c.x, 0, c.z);
-      c.mesh.rotation.y = Math.atan2(dx, dz);
-      c.mesh.visible = this.dist < UNIT_VIS_DIST * 1.4;
+    const routeGeo = new THREE.BufferGeometry();
+    routeGeo.setAttribute('position', new THREE.Float32BufferAttribute(ribbon, 3));
+    routeGeo.setIndex(indices);
+    const route = new THREE.Mesh(
+      routeGeo,
+      new THREE.MeshBasicMaterial({ color: 0xffe29a, transparent: true, opacity: 0.72, depthWrite: false, depthTest: false, side: THREE.DoubleSide })
+    );
+    route.renderOrder = 20;
+    const beadGeo = new THREE.CircleGeometry(0.46, 16);
+    beadGeo.rotateX(-Math.PI / 2);
+    const bead = new THREE.Mesh(
+      beadGeo,
+      new THREE.MeshBasicMaterial({ color: 0xffdc79, transparent: true, opacity: 0.96, depthWrite: false, depthTest: false })
+    );
+    bead.renderOrder = 21;
+    this.scene.add(route, bead, group);
+    return { group, bead, route, line: wave.line, modelVersion: this.modelsVersion };
+  }
+
+  // Saved reinforcement waves are the only things shown in transit. A route
+  // therefore answers where a unit came from, where it is going, and whether
+  // it has actually joined combat—there are no decorative fake convoys.
+  private syncReinforcements(gs: GameState): void {
+    const live = new Set(gs.reinforcements.map(w => w.id));
+    for (const [id, visual] of this.transits) {
+      if (live.has(id) && visual.modelVersion === this.modelsVersion) continue;
+      this.scene.remove(visual.group, visual.bead, visual.route);
+      visual.route.geometry.dispose();
+      visual.bead.geometry.dispose();
+      this.transits.delete(id);
     }
+    const routedTargets = new Set<number>();
+    for (const wave of gs.reinforcements) {
+      let visual = this.transits.get(wave.id);
+      if (!visual) {
+        visual = this.makeTransit(wave);
+        this.transits.set(wave.id, visual);
+      }
+      const p = this.transitPoint(wave, wave.progress);
+      const ahead = this.transitPoint(wave, Math.min(1, wave.progress + 0.01));
+      visual.group.position.copy(p);
+      visual.bead.position.set(p.x, 0.24, p.z);
+      visual.bead.scale.setScalar(clamp(this.dist / 88, 0.72, 1.25));
+      visual.group.rotation.y = Math.atan2(ahead.x - p.x, ahead.z - p.z);
+      visual.group.visible = this.dist < 74;
+      visual.bead.visible = this.dist >= 65;
+      // Route is strategic/operational symbology. Inside the battle frame it
+      // would read as a giant weapon tracer and compete with real units.
+      visual.route.visible = this.dist > 42 && !routedTargets.has(wave.targetTid);
+      routedTargets.add(wave.targetTid);
+      (visual.route.material as THREE.MeshBasicMaterial).opacity = this.dist > 76 ? 0.82 : 0.62;
+    }
+    const pulse = 1 + Math.sin(this.time * 2.6) * 0.08;
+    const strategicScale = clamp(this.dist / 68, 0.8, 1.8);
+    this.hqMarker.scale.setScalar(strategicScale * pulse);
+    this.hqMarker.visible = this.dist > 24;
   }
 
   // Every front gets a visible skirmish — enemy garrison clusters facing your
@@ -787,7 +885,10 @@ export class BoardView {
     for (const f of fronts) {
       if (hot && f.tid === hot.tid) continue;      // hot front has the full battle
       live.add(f.tid);
-      if (this.pickets.has(f.tid)) continue;
+      const signature = `${Math.floor(Math.log10(Math.max(f.garrison, 1)))}|${f.unitsByLine.map(n => n > 0.1 ? 1 : 0).join('')}`;
+      const existing = this.pickets.get(f.tid);
+      if (existing?.userData.signature === signature) continue;
+      if (existing) { this.scene.remove(existing); this.pickets.delete(f.tid); }
       const t = this.board.territories.find(q => q.id === f.tid);
       if (!t) continue;
       const w = gridToWorld(t.cx, t.cy);
@@ -802,10 +903,11 @@ export class BoardView {
         m.rotation.y = Math.atan2(dx, dz) + ((i * 13) % 7 - 3) * 0.09;
         grp.add(m);
       }
-      // Friendly pickets reflect what the player actually builds.
+      // Friendly pickets reflect this front's surviving formation, not the
+      // global arsenal or a future DIRECT order.
       const arsenal: string[] = [];
       for (let li = 0; li < LINES.length; li++) {
-        if (gs.lines[li].army > 1 && FRIENDLY_MODELS[li]) arsenal.push(FRIENDLY_MODELS[li]);
+        if (f.unitsByLine[li] > 0.1 && FRIENDLY_MODELS[li]) arsenal.push(FRIENDLY_MODELS[li]);
       }
       if (arsenal.length === 0) arsenal.push('Soldier');
       const fr = clamp(Math.round(en * 0.7), 2, 6);
@@ -816,6 +918,7 @@ export class BoardView {
         grp.add(m);
       }
       grp.position.set(w.x - dx * 4, 0, w.z - dz * 4);
+      grp.userData.signature = signature;
       this.scene.add(grp);
       this.pickets.set(f.tid, grp);
     }
@@ -943,7 +1046,7 @@ export class BoardView {
         const p = pts[Math.floor(Math.random() * pts.length)];
         const w = gridToWorld(p.x + (Math.random() - 0.5) * 6, p.y + (Math.random() - 0.5) * 6);
         this.tmp.set(w.x, 0.3, w.z);
-        this.effects.explode(this.tmp, this.dist > UNIT_VIS_DIST ? 0.72 : 0.82);
+        this.effects.explode(this.tmp, this.dist > UNIT_VIS_DIST ? 0.5 : 0.48);
       }
       // Ambient war on the other fronts — the whole border is alive.
       for (const f of fronts) {
@@ -953,7 +1056,7 @@ export class BoardView {
           if (!t) continue;
           const w = gridToWorld(t.cx + (Math.random() - 0.5) * 16, t.cy + (Math.random() - 0.5) * 16);
           this.tmp.set(w.x, 0.3, w.z);
-          this.effects.explode(this.tmp, 1.2 + Math.random() * 0.6);
+          this.effects.explode(this.tmp, 0.58 + Math.random() * 0.28);
         }
       }
       if (this.dist < UNIT_VIS_DIST && this.pieces.length > 1) {
@@ -1014,7 +1117,7 @@ export class BoardView {
     }
 
     this.syncFlags(gs);
-    this.updateConvoys(gs, hot, dt);
+    this.syncReinforcements(gs);
     this.updatePickets(gs, fronts, hot);
 
     // Momentum chevrons: pulsing gold arrows where you're overwhelming a
@@ -1109,7 +1212,7 @@ export class BoardView {
     if (show && hot) {
       const caps = [10, 4, 3, 4, 2, 2, 1, 0, 1];
       for (let i = 0; i < LINES.length; i++) {
-        const n = Math.round(Math.min(caps[i], Math.sqrt(gs.lines[i].army) * (i === 0 ? 1.6 : 0.8)) * room);
+        const n = Math.round(Math.min(caps[i], Math.sqrt(hot.unitsByLine[i]) * (i === 0 ? 1.6 : 0.8)) * room);
         for (let k = 0; k < n; k++) want.push({ friendly: true, line: i });
       }
       // Defenders scale with the remaining garrison. The close frame must

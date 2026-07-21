@@ -96,7 +96,7 @@ try:
         time.sleep(6)
 
         hud = page.inner_text("#hud-day") + " " + page.inner_text("#hud-adv")
-        check("war: fronts active in HUD", "FRONT" in hud.upper(), hud)
+        check("war: fronts active in HUD", "HQ→" in hud.upper(), hud)
         check("war: rent shows", "RENT" in page.inner_text("#hud-funds-label").upper())
 
         # R&D: engineers visible, direct a research program.

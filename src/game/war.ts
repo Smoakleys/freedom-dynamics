@@ -6,6 +6,7 @@
 import { LINES, BALANCE, RESEARCH } from './content';
 import { unitPower, devPerSec as devSec } from './economy';
 import { applyFormationDamage, formationCombat } from './combat';
+import { unitCombatStats } from './combat';
 import { gridToWorld } from '../render/board/gen';
 import type { Board } from '../render/board/gen';
 import type { GameState, GameEvent } from './state';
@@ -37,6 +38,8 @@ export interface FrontInfo {
   friendlyDps: number;   // class/role/synergy-aware damage per second
   capturePower: number;  // occupation ability after the garrison breaks
   suppression: number;   // air cover reducing incoming fire
+  friendlyHealth: number;// surviving effective health physically at this front
+  formationUnits: number;// actual unit count at this front
   progress: number;      // 0..1 toward broken garrison
   holding: boolean;      // garrison broken, hold timer running
   holdLeft: number;
@@ -77,47 +80,164 @@ function ensureGarrison(board: Board, gs: GameState, tid: number): number {
   return gs.garrisons[tid];
 }
 
+function emptyFormation(): number[] {
+  return new Array(LINES.length).fill(0);
+}
+
+export function homeWorldCenter(board: Board): { x: number; z: number } {
+  const home = board.territories.filter(t => t.nation === board.homeNation);
+  // The visible HQ badge is anchored to the northernmost homeland province so
+  // it remains above the mobile drawer. Dispatches must originate at that exact
+  // landmark—not at an invisible average point elsewhere in the homeland.
+  const hq = [...home].sort((a, b) => a.cy - b.cy)[0];
+  return hq ? gridToWorld(hq.cx, hq.cy) : { x: 0, z: 0 };
+}
+
+function territoryWorld(board: Board, tid: number): { x: number; z: number } {
+  const t = board.territories.find(q => q.id === tid);
+  return t ? gridToWorld(t.cx, t.cy) : homeWorldCenter(board);
+}
+
+function nearestFront(board: Board, fronts: number[], point: { x: number; z: number }): number {
+  let best = fronts[0], bestDistance = Infinity;
+  for (const tid of fronts) {
+    const c = territoryWorld(board, tid);
+    const d = (c.x - point.x) ** 2 + (c.z - point.z) ** 2;
+    if (d < bestDistance) { bestDistance = d; best = tid; }
+  }
+  return best;
+}
+
+// Persist actual class composition at each live front. Old saves and orphaned
+// formations are deterministically redistributed; changing a line's DIRECT
+// flag never moves formations already fighting.
+export function ensureDeployments(board: Board, gs: GameState): void {
+  const fronts = activeFronts(board, gs);
+  if (fronts.length === 0) {
+    gs.deployments = {};
+    return;
+  }
+  const live = new Set(fronts);
+  for (const [key, raw] of Object.entries(gs.deployments)) {
+    const tid = Number(key);
+    const safe = emptyFormation();
+    if (Array.isArray(raw)) {
+      for (let i = 0; i < LINES.length; i++) safe[i] = Math.max(0, Number(raw[i]) || 0);
+    }
+    if (live.has(tid)) gs.deployments[tid] = safe;
+    else delete gs.deployments[tid];
+  }
+  for (const tid of fronts) gs.deployments[tid] ??= emptyFormation();
+
+  for (let line = 0; line < LINES.length; line++) {
+    const total = Math.max(0, gs.lines[line].army);
+    let deployed = fronts.reduce((sum, tid) => sum + (gs.deployments[tid]?.[line] ?? 0), 0);
+    if (deployed > total + 1e-8) {
+      const scale = total / Math.max(deployed, 1e-9);
+      for (const tid of fronts) gs.deployments[tid][line] *= scale;
+      deployed = total;
+    }
+    const missing = total - deployed;
+    if (missing <= 1e-8) continue;
+    const target = gs.lines[line].target
+      ? nearestFront(board, fronts, gs.lines[line].target!)
+      : null;
+    if (target !== null) {
+      gs.deployments[target][line] += missing;
+      continue;
+    }
+    let totalPressure = 0;
+    for (const tid of fronts) totalPressure += Math.max(ensureGarrison(board, gs, tid), 1);
+    for (const tid of fronts) {
+      const share = Math.max(gs.garrisons[tid], 1) / Math.max(totalPressure, 1);
+      gs.deployments[tid][line] += missing * share;
+    }
+  }
+}
+
+export function reinforcementTarget(board: Board, gs: GameState, line: number): number | null {
+  const fronts = activeFronts(board, gs);
+  if (fronts.length === 0) return null;
+  ensureDeployments(board, gs);
+  const explicit = gs.lines[line].target;
+  if (explicit) return nearestFront(board, fronts, explicit);
+  // AUTO fills the front with the least friendly power relative to pressure.
+  let best = fronts[0], bestScore = Infinity;
+  for (const tid of fronts) {
+    const formation = gs.deployments[tid] ?? emptyFormation();
+    const power = formation.reduce((sum, units, i) => sum + units * unitPower(gs, i), 0);
+    const score = power / Math.max(ensureGarrison(board, gs, tid), 1);
+    if (score < bestScore) { bestScore = score; best = tid; }
+  }
+  return best;
+}
+
+export function queueReinforcement(
+  board: Board,
+  gs: GameState,
+  line: number,
+  count: number,
+  events: GameEvent[]
+): void {
+  const targetTid = reinforcementTarget(board, gs, line);
+  if (targetTid === null) {
+    // No war remains; completed hardware stays in the homeland reserve.
+    gs.lines[line].army += count;
+    return;
+  }
+  const from = homeWorldCenter(board);
+  const to = territoryWorld(board, targetTid);
+  const distance = Math.hypot(to.x - from.x, to.z - from.z);
+  const role = LINES[line].combat.role;
+  const travelSpeed = Math.max(LINES[line].combat.speed, role === 'orbital' ? 40 : 1);
+  const duration = role === 'orbital' ? 2.5
+    : role === 'missile' ? Math.max(3, distance / 18)
+    : role === 'air' ? Math.max(4, distance / 13)
+    : Math.min(24, Math.max(4, distance / (3.2 + travelSpeed)));
+  // Very fast lines aggregate batches into a single visible convoy instead of
+  // producing hundreds of save objects per minute.
+  const merge = gs.reinforcements.find(w => w.line === line && w.targetTid === targetTid && w.progress < 0.18);
+  if (merge) {
+    merge.count += count;
+    events.push({ type: 'reinforcementDispatched', id: merge.id, line, count, targetTid, eta: (1 - merge.progress) * merge.duration });
+    return;
+  }
+  const id = gs.nextReinforcementId++;
+  gs.reinforcements.push({ id, line, count, targetTid, from, to, progress: 0, duration });
+  events.push({ type: 'reinforcementDispatched', id, line, count, targetTid, eta: duration });
+}
+
+export function reinforcementTick(board: Board, gs: GameState, dt: number, events: GameEvent[]): void {
+  if (gs.reinforcements.length === 0) return;
+  const fronts = activeFronts(board, gs);
+  for (let i = gs.reinforcements.length - 1; i >= 0; i--) {
+    const wave = gs.reinforcements[i];
+    wave.progress = Math.min(1, wave.progress + dt / Math.max(wave.duration, 0.25));
+    if (wave.progress < 1) continue;
+    let targetTid = wave.targetTid;
+    if (fronts.length > 0 && !fronts.includes(targetTid)) targetTid = nearestFront(board, fronts, wave.to);
+    gs.lines[wave.line].army += wave.count;
+    if (fronts.length > 0) {
+      gs.deployments[targetTid] ??= emptyFormation();
+      gs.deployments[targetTid][wave.line] += wave.count;
+    }
+    events.push({ type: 'reinforcementArrived', id: wave.id, line: wave.line, count: wave.count, targetTid });
+    gs.reinforcements.splice(i, 1);
+  }
+}
+
 export function frontInfos(board: Board, gs: GameState): FrontInfo[] {
   const fronts = activeFronts(board, gs);
   if (fronts.length === 0) return [];
-
-  let totalG = 0;
-  const cents: Record<number, { x: number; z: number }> = {};
+  ensureDeployments(board, gs);
   for (const tid of fronts) {
-    const g = ensureGarrison(board, gs, tid);
-    totalG += Math.max(g, 1);
-    const t = board.territories.find(q => q.id === tid)!;
-    cents[tid] = gridToWorld(t.cx, t.cy);
-  }
-
-  // Allocate actual unit counts, not one anonymous power pool. An unrouted
-  // class spreads across every live front; SEND HERE commits that class to the
-  // nearest front. This allocation feeds both its weapons and incoming losses.
-  const unitsByTid: Record<number, number[]> = {};
-  for (const tid of fronts) unitsByTid[tid] = new Array(LINES.length).fill(0);
-  for (let line = 0; line < LINES.length; line++) {
-    const ls = gs.lines[line];
-    if (ls.army <= 0) continue;
-    if (ls.target) {
-      let best = fronts[0], bd = Infinity;
-      for (const tid of fronts) {
-        const c = cents[tid];
-        const d = (c.x - ls.target.x) ** 2 + (c.z - ls.target.z) ** 2;
-        if (d < bd) { bd = d; best = tid; }
-      }
-      unitsByTid[best][line] += ls.army;
-    } else {
-      for (const tid of fronts) {
-        const share = totalG > 0 ? Math.max(gs.garrisons[tid], 1) / totalG : 1 / fronts.length;
-        unitsByTid[tid][line] += ls.army * share;
-      }
-    }
+    ensureGarrison(board, gs, tid);
   }
 
   return fronts.map(tid => {
     const t = board.territories.find(q => q.id === tid)!;
     const g = gs.garrisons[tid];
-    const unitsByLine = unitsByTid[tid];
+    const unitsByLine = gs.deployments[tid];
     const formation = formationCombat(gs, unitsByLine, 'garrison');
     return {
       tid,
@@ -128,6 +248,8 @@ export function frontInfos(board: Board, gs: GameState): FrontInfo[] {
       friendlyDps: formation.dps,
       capturePower: formation.capturePower,
       suppression: formation.suppression,
+      friendlyHealth: unitsByLine.reduce((sum, units, i) => sum + units * unitCombatStats(gs, i).effectiveHealth, 0),
+      formationUnits: unitsByLine.reduce((sum, units) => sum + units, 0),
       progress: t.strength > 0 ? 1 - g / t.strength : 1,
       holding: g <= 0,
       holdLeft: g <= 0 ? Math.max(0, WAR.HOLD_SECONDS - (gs.holdTimers[tid] ?? 0)) : WAR.HOLD_SECONDS
@@ -144,17 +266,21 @@ export function warTick(board: Board, gs: GameState, dt: number, events: GameEve
     const friction = f.committed * WAR.SELF_ATTRITION;
     applyFormationDamage(gs, f.unitsByLine, (garrisonFire + friction) * dt);
   }
-  if (gs.wave) {
-    const allUnits = gs.lines.map(l => l.army);
-    const cover = formationCombat(gs, allUnits, 'wave').suppression;
-    applyFormationDamage(gs, allUnits, gs.wave.power * WAR.WAVE_BITE * (1 - cover) * dt);
+  if (gs.wave && fronts.length > 0) {
+    let target = fronts.find(f => f.tid === gs.wave!.targetTid);
+    if (!target) {
+      const oldTarget = territoryWorld(board, gs.wave.targetTid);
+      gs.wave.targetTid = nearestFront(board, fronts.map(f => f.tid), oldTarget);
+      target = fronts.find(f => f.tid === gs.wave!.targetTid)!;
+    }
+    applyFormationDamage(gs, target.unitsByLine, gs.wave.power * WAR.WAVE_BITE * (1 - target.suppression) * dt);
   }
 
   // — The wave soaks your offensive power before territories do —
   let offenseFactor = 1;
   if (gs.wave) {
-    const allUnits = gs.lines.map(l => l.army);
-    const waveFormation = formationCombat(gs, allUnits, 'wave');
+    const target = fronts.find(f => f.tid === gs.wave!.targetTid);
+    const waveFormation = formationCombat(gs, target?.unitsByLine ?? emptyFormation(), 'wave');
     const grind = Math.min(gs.wave.power, waveFormation.dps * WAR.WAVE_DPS * dt);
     gs.wave.power -= grind;
     gs.stats.damageDealt += grind;
@@ -168,7 +294,8 @@ export function warTick(board: Board, gs: GameState, dt: number, events: GameEve
   // — Grind garrisons, run hold timers, flip territories —
   for (const f of fronts) {
     if (!f.holding) {
-      const dmg = f.friendlyDps * WAR.YOUR_DPS * offenseFactor * dt;
+      const localOffenseFactor = gs.wave && f.tid === gs.wave.targetTid ? offenseFactor : 1;
+      const dmg = f.friendlyDps * WAR.YOUR_DPS * localOffenseFactor * dt;
       gs.garrisons[f.tid] = Math.max(0, f.garrison - dmg);
       gs.stats.damageDealt += Math.min(f.garrison, dmg);
       continue;
@@ -192,7 +319,10 @@ export function warTick(board: Board, gs: GameState, dt: number, events: GameEve
         gs.fallenNations.push(t.nation);
         const wavePower = WAR.WAVE_SCALE * nation.territories
           .reduce((s, id) => s + (board.territories.find(q => q.id === id)?.strength ?? 0), 0);
-        gs.wave = { nation: t.nation, power: wavePower, initial: wavePower };
+        const nextFronts = activeFronts(board, gs);
+        const lastPoint = territoryWorld(board, t.id);
+        const targetTid = nextFronts.length > 0 ? nearestFront(board, nextFronts, lastPoint) : t.id;
+        gs.wave = { nation: t.nation, power: wavePower, initial: wavePower, targetTid };
         events.push({ type: 'waveStarted', nation: t.nation });
       }
     }

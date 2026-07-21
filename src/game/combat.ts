@@ -126,6 +126,7 @@ export function applyFormationDamage(gs: GameState, unitsByLine: number[], rawDa
       const spent = Math.min(poolHealth, share);
       const lost = spent / Math.max(x.stats.effectiveHealth, 1e-9);
       gs.lines[x.line].army = Math.max(0, gs.lines[x.line].army - lost);
+      unitsByLine[x.line] = Math.max(0, (unitsByLine[x.line] ?? 0) - lost);
       gs.stats.unitsLost += lost;
       spentThisPass += spent;
     }
@@ -136,4 +137,3 @@ export function applyFormationDamage(gs: GameState, unitsByLine: number[], rawDa
   gs.stats.damageTaken += applied;
   return applied;
 }
-

@@ -196,7 +196,7 @@ export class UI {
             <div class="line-name">${L.name}<span class="line-role">${L.combat.roleLabel}</span></div>
             <div class="line-stats"></div>
           </div>
-          <button class="line-flag" title="Choose where this unit class fights">DIRECT</button>
+          <button class="line-flag" title="Route future deliveries to a chosen front">ROUTE</button>
         </div>
         <div class="line-progress"><div class="line-progress-fill"></div></div>
         <div class="line-actions">
@@ -242,11 +242,11 @@ export class UI {
         const ls = this.gs.lines[i];
         if (ls.target) {
           ls.target = null;
-          this.toast(`${L.unitPlural} return to auto-deployment`);
+          this.toast(`Future ${L.unitPlural.toLowerCase()} return to AUTO routing`);
           this.refresh();
         } else {
           this.armedLine = i;
-          this.toast(`Tap the map — ${L.unitPlural} will concentrate there`);
+          this.toast(`Tap the map — future ${L.unitPlural.toLowerCase()} will deploy there`);
           this.onArmSend?.(i);
           this.refresh();
         }
@@ -325,10 +325,11 @@ export class UI {
       const unlocked = lineUnlocked(gs, i);
       r.root.style.display = unlocked ? '' : 'none';
       if (!unlocked) continue;
+      const moving = gs.reinforcements.reduce((sum, wave) => sum + (wave.line === i ? wave.count : 0), 0);
       const flagBtn = r.root.querySelector('.line-flag') as HTMLButtonElement;
       flagBtn.classList.toggle('set', !!ls.target);
       flagBtn.classList.toggle('arming', this.armedLine === i);
-      flagBtn.style.display = ls.army > 0 || ls.target ? '' : 'none';
+      flagBtn.style.display = ls.owned > 0 || ls.army > 0 || moving > 0 || ls.target ? '' : 'none';
       r.root.classList.toggle('automated', ls.hired);
       r.root.classList.toggle('can-direct', ls.army > 0 || !!ls.target);
       const count = this.buyCount(i);
@@ -342,12 +343,12 @@ export class UI {
 
       const ms = nextMilestone(ls.owned);
       const combat = unitCombatStats(gs, i);
-      const combatLine = `${fmt(combat.damage)} DMG · ${fmt(combat.maxHealth)} HP · ${fmt(combat.range)} RNG`;
-      const economyLine = ls.owned === 0
-        ? `${fmtMoney(L.revenue)}/DELIVERY`
+      const fieldLine = `FIELD ${fmt(ls.army)} · MOVING ${fmt(moving)}`;
+      const detailLine = ls.owned === 0
+        ? `${fmt(combat.damage)} DMG · ${fmt(combat.maxHealth)} HP`
         : `${fmtMoney(batchRevenue(gs, i))}/${fmtDuration(batchDuration(gs, i))}` + (ms ? ` · x2 @ ${ms}` : '');
-      r.statsEl.innerHTML = `<span>${combatLine}</span><em>${economyLine}</em>`;
-      flagBtn.textContent = this.armedLine === i ? 'TAP MAP' : ls.target ? 'TARGET' : 'DIRECT';
+      r.statsEl.innerHTML = `<span>${fieldLine}</span><em>${detailLine}</em>`;
+      flagBtn.textContent = this.armedLine === i ? 'TAP MAP' : ls.target ? 'ROUTED' : 'ROUTE';
 
       r.buyBtn.disabled = !affordable || count === 0;
       (r.buyBtn.querySelector('small') as HTMLElement).textContent =
@@ -356,7 +357,7 @@ export class UI {
       r.runBtn.style.display = ls.hired ? 'none' : '';
       r.runBtn.disabled = ls.owned === 0 || ls.running;
       (r.runBtn.querySelector('small') as HTMLElement).textContent =
-        ls.owned === 0 ? '—' : ls.running ? 'IN TRANSIT' : `${fmt(ls.owned)} units`;
+        ls.owned === 0 ? '—' : ls.running ? 'FABRICATING' : `${fmt(ls.owned)} units`;
 
       if (ls.hired) {
         r.hireBtn.style.display = 'none';

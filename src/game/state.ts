@@ -12,6 +12,17 @@ export interface LineState {
   target: { x: number; z: number } | null;  // SEND HERE destination (world coords)
 }
 
+export interface ReinforcementWave {
+  id: number;
+  line: number;
+  count: number;
+  targetTid: number;
+  from: { x: number; z: number };
+  to: { x: number; z: number };
+  progress: number;       // 0..1 from HQ to the assigned front
+  duration: number;       // deterministic travel time in seconds
+}
+
 export interface Stats {
   unitsLost: number;
   damageDealt: number;
@@ -24,6 +35,7 @@ export interface WaveState {
   nation: number;
   power: number;
   initial: number;
+  targetTid: number; // actual live front the counteroffensive is attacking
 }
 
 export interface GameState {
@@ -46,6 +58,9 @@ export interface GameState {
   researchProgress: number;
   completedResearch: string[];
   cooldowns: Record<string, number>;
+  deployments: Record<number, number[]>; // front territory -> surviving class counts
+  reinforcements: ReinforcementWave[];
+  nextReinforcementId: number;
   lines: LineState[];
   lastSeen: number;
   founded: boolean;
@@ -60,7 +75,7 @@ export function newGame(): GameState {
   const lines = LINES.map(() => newLineState());
   lines[0].owned = 1; // the company begins with one proud refurbished-rifle line
   return {
-    version: 4,
+    version: 5,
     company: '',
     funds: 0,
     lifetimeEarnings: 0,
@@ -79,6 +94,9 @@ export function newGame(): GameState {
     researchProgress: 0,
     completedResearch: [],
     cooldowns: {},
+    deployments: {},
+    reinforcements: [],
+    nextReinforcementId: 1,
     lines,
     lastSeen: Date.now(),
     founded: false,
@@ -89,6 +107,8 @@ export function newGame(): GameState {
 // Events emitted by the sim for UI/chyron/AAR consumption.
 export type GameEvent =
   | { type: 'delivered'; line: number; count: number; revenue: number }
+  | { type: 'reinforcementDispatched'; id: number; line: number; count: number; targetTid: number; eta: number }
+  | { type: 'reinforcementArrived'; id: number; line: number; count: number; targetTid: number }
   | { type: 'territoryWon'; tid: number; bond: number }
   | { type: 'waveStarted'; nation: number }
   | { type: 'nationFell'; nation: number }

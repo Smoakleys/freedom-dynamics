@@ -3,7 +3,10 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { generateBoard, gridToWorld, GRID_W, GRID_H } from '../src/render/board/gen';
 import { newGame, type GameState } from '../src/game/state';
 import { bindBoard, tick, fastForward } from '../src/game/sim';
-import { warTick, frontInfos, activeFronts, applyStrike, armyPower } from '../src/game/war';
+import {
+  warTick, frontInfos, activeFronts, applyStrike, armyPower,
+  queueReinforcement, reinforcementTick, ensureDeployments, homeWorldCenter
+} from '../src/game/war';
 import { unitPower, devPerSec, engineerCost, availableResearch, lineUnlocked } from '../src/game/economy';
 import { LINES, RESEARCH } from '../src/game/content';
 import { applyFormationDamage, formationCombat, unitCombatStats } from '../src/game/combat';
@@ -93,6 +96,57 @@ describe('the living war', () => {
     expect(routed.committed).toBeGreaterThanOrEqual(gs.lines[0].army * unitPower(gs, 0) * 0.99);
   });
 
+  it('ships completed hardware from HQ and grants no combat power before arrival', () => {
+    const { gs, board } = freshWar(new Array(LINES.length).fill(0));
+    ensureDeployments(board, gs);
+    const events: import('../src/game/state').GameEvent[] = [];
+    const hq = homeWorldCenter(board);
+    queueReinforcement(board, gs, 0, 12, events);
+
+    expect(gs.lines[0].army).toBe(0);
+    expect(gs.reinforcements).toHaveLength(1);
+    expect(gs.reinforcements[0].from).toEqual(hq);
+    expect(gs.reinforcements[0].duration).toBeGreaterThan(0);
+    expect(events.some(e => e.type === 'reinforcementDispatched')).toBe(true);
+
+    reinforcementTick(board, gs, gs.reinforcements[0].duration * 0.5, events);
+    expect(gs.lines[0].army).toBe(0);
+    expect(gs.reinforcements[0].progress).toBeCloseTo(0.5, 5);
+
+    const targetTid = gs.reinforcements[0].targetTid;
+    reinforcementTick(board, gs, gs.reinforcements[0].duration, events);
+    expect(gs.reinforcements).toHaveLength(0);
+    expect(gs.lines[0].army).toBe(12);
+    expect(gs.deployments[targetTid][0]).toBeCloseTo(12, 6);
+    expect(events.some(e => e.type === 'reinforcementArrived')).toBe(true);
+  });
+
+  it('DIRECT changes future deliveries without teleporting deployed formations', () => {
+    const { gs, board } = freshWar(new Array(LINES.length).fill(0));
+    const fronts = activeFronts(board, gs);
+    expect(fronts.length).toBeGreaterThan(1);
+    const first = board.territories.find(t => t.id === fronts[0])!;
+    const second = board.territories.find(t => t.id === fronts[1])!;
+    const firstWorld = gridToWorld(first.cx, first.cy);
+    const secondWorld = gridToWorld(second.cx, second.cy);
+    const events: import('../src/game/state').GameEvent[] = [];
+
+    gs.lines[0].target = firstWorld;
+    queueReinforcement(board, gs, 0, 10, events);
+    const firstTid = gs.reinforcements[0].targetTid;
+    reinforcementTick(board, gs, 999, events);
+    const firstFormation = gs.deployments[firstTid][0];
+
+    gs.lines[0].target = secondWorld;
+    queueReinforcement(board, gs, 0, 7, events);
+    const secondTid = gs.reinforcements[0].targetTid;
+    expect(secondTid).not.toBe(firstTid);
+    expect(gs.deployments[firstTid][0]).toBeCloseTo(firstFormation, 6);
+    reinforcementTick(board, gs, 999, events);
+    expect(gs.deployments[firstTid][0]).toBeCloseTo(firstFormation, 6);
+    expect(gs.deployments[secondTid][0]).toBeCloseTo(7, 6);
+  });
+
   it('grinds, holds 60s, and flips territories; rent flows', () => {
     const { gs, board } = freshWar();
     const before = gs.owned.length;
@@ -108,6 +162,23 @@ describe('the living war', () => {
     for (let i = 0; i < 4000 && gs.fallenNations.length === 0; i++) warTick(board, gs, 1, events);
     expect(gs.fallenNations.length).toBeGreaterThan(0);
     expect(events.some(e => e.type === 'waveStarted')).toBe(true);
+    expect(gs.wave?.targetTid).toBeTypeOf('number');
+  });
+
+  it('counteroffensives attack one real front formation instead of global anonymous power', () => {
+    const { gs, board } = freshWar([2000, 500, 0, 0, 0, 0, 0, 0, 0]);
+    const baseline = freshWar([2000, 500, 0, 0, 0, 0, 0, 0, 0]);
+    const fronts = frontInfos(board, gs);
+    frontInfos(baseline.board, baseline.gs);
+    expect(fronts.length).toBeGreaterThan(1);
+    const target = fronts[0];
+    const other = fronts[1];
+    gs.wave = { nation: 1, power: 800, initial: 800, targetTid: target.tid };
+    warTick(board, gs, 1, []);
+    warTick(baseline.board, baseline.gs, 1, []);
+    expect(gs.deployments[target.tid].reduce((a, b) => a + b, 0))
+      .toBeLessThan(baseline.gs.deployments[target.tid].reduce((a, b) => a + b, 0));
+    expect(gs.deployments[other.tid]).toEqual(baseline.gs.deployments[other.tid]);
   });
 
   it('never NaNs or loses owned land over a long offline run', () => {
@@ -247,18 +318,26 @@ describe('save migration', () => {
     expect(gs.engineers).toBe(0);
   });
 
-  it('round-trips a v4 save', () => {
+  it('round-trips a v5 save including deployments in transit', () => {
     const gs = newGame();
     gs.company = 'RT Corp';
     gs.engineers = 7;
     gs.completedResearch = ['armor1'];
     gs.lines[2].target = { x: 5, z: -10 };
+    gs.deployments[3] = new Array(LINES.length).fill(0);
+    gs.deployments[3][2] = 4;
+    gs.reinforcements.push({ id: 9, line: 2, count: 3, targetTid: 3, from: { x: 1, z: 2 }, to: { x: 3, z: 4 }, progress: 0.4, duration: 8 });
+    gs.nextReinforcementId = 10;
     save(gs);
     const back = load()!;
     expect(back.company).toBe('RT Corp');
     expect(back.engineers).toBe(7);
     expect(back.completedResearch).toContain('armor1');
     expect(back.lines[2].target).toEqual({ x: 5, z: -10 });
+    expect(back.version).toBe(5);
+    expect(back.deployments[3][2]).toBe(4);
+    expect(back.reinforcements[0]).toMatchObject({ id: 9, line: 2, count: 3, progress: 0.4 });
+    expect(back.nextReinforcementId).toBe(10);
   });
 });
 

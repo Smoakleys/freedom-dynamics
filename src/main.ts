@@ -2,10 +2,11 @@ import './ui/styles.css';
 import { newGame, type GameState } from './game/state';
 import { load, save } from './game/save';
 import { tick, fastForward, bindBoard } from './game/sim';
-import { frontInfos, applyStrike } from './game/war';
+import { frontInfos, applyStrike, WAR } from './game/war';
 import { generateBoard } from './render/board/gen';
 import { UI } from './ui/ui';
 import { BoardView } from './render/boardview';
+import { fmt } from './game/format';
 
 const gs: GameState = load() ?? newGame();
 
@@ -61,19 +62,27 @@ function hudInfo(): { title: string; sub: string; pct: number; label: string } {
     const n = board.nations[gs.wave.nation];
     return {
       title: `${n.name.toUpperCase()} — FINAL OFFENSIVE`,
-      sub: `REPEL THE WAVE · ${Math.round((gs.wave.power / Math.max(gs.wave.initial, 1)) * 100)}% REMAINING`,
-      pct,
-      label: `${held}/${total} HELD`
+      sub: `${held}/${total} HELD · ${fmt(gs.reinforcements.reduce((s, w) => s + w.count, 0))} REINFORCEMENTS MOVING`,
+      pct: gs.wave.power / Math.max(gs.wave.initial, 1),
+      label: `WAVE ${Math.round((gs.wave.power / Math.max(gs.wave.initial, 1)) * 100)}%`
     };
   }
   const hot = fronts.length > 0 ? fronts.reduce((a, b) => (b.committed > a.committed ? b : a)) : null;
   const t = hot ? board.territories.find(q => q.id === hot.tid) : null;
   const nation = t ? board.nations[t.nation] : null;
+  const moving = gs.reinforcements.reduce((s, w) => s + w.count, 0);
+  const garrisonPct = hot
+    ? hot.holding ? 1 - hot.holdLeft / WAR.HOLD_SECONDS : hot.garrison / Math.max(hot.strength, 1)
+    : pct;
   return {
     title: t ? t.name.toUpperCase() : 'ALL QUIET',
-    sub: t && nation ? `HQ → ${fronts.length} FRONTS · vs ${nation.adversaryName.toUpperCase()}` : 'HQ SECURE · THE CONTINENT AWAITS',
-    pct,
-    label: `${held}/${total} HELD`
+    sub: t && nation && hot
+      ? `${fmt(hot.formationUnits)} F · ${fmt(moving)} HQ→ · ${fronts.length}F`
+      : 'HQ SECURE · THE CONTINENT AWAITS',
+    pct: garrisonPct,
+    label: hot
+      ? hot.holding ? `SECURING ${Math.ceil(hot.holdLeft)}s` : `GARRISON ${Math.round(garrisonPct * 100)}%`
+      : `${held}/${total} HELD`
   };
 }
 

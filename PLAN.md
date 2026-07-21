@@ -49,6 +49,62 @@
 - Production and R&D do not permanently compete for the same phone height.
   Routine automated lines collapse; secondary systems open on demand.
 
+## FINAL PRODUCT CONTRACT — the causal war machine (2026-07-20)
+
+This is the acceptance definition for Freedom Dynamics. A feature does not
+count because a number changes or a cosmetic proxy resembles it. The complete
+causal chain must exist in state, be legible on the board, survive offline fast
+forward, and remain deterministic:
+
+1. **Produce at HQ.** A completed production batch becomes a class-identified
+   reinforcement wave at `★ HOME / HQ`; it does not become front-line power
+   instantly. Revenue is paid on delivery from the factory, while field power
+   waits for battlefield arrival.
+2. **Route future output.** DIRECT chooses where future batches of that line
+   travel. Changing the flag never teleports formations already fighting.
+   AUTO sends each new batch to the front with the greatest unmet pressure.
+3. **Travel visibly.** Every wave retains class, count, origin, destination,
+   ETA, and progress. Ground units convoy, aircraft sortie, missiles launch,
+   and orbital assets uplink. Strategic zoom shows routes/flow; operational and
+   close zoom show tiny fixed-world class models moving along them.
+4. **Arrive into a formation.** Only arrival increases the deployed class
+   count at a specific front. Captures redeploy surviving formations forward;
+   invalid destinations retarget predictably rather than disappear.
+5. **Fight by composition.** Each front stores its own class counts. Health,
+   armor, exposure, damage, rate, range, support, spotting, combined arms, air
+   suppression, and occupation ability determine damage and actual class
+   losses there. The UI exposes fielded/in-transit totals and concise combat
+   vitals without inventing individual persistent soldiers.
+6. **Show consequences.** At operational/close zoom, formation strength,
+   enemy garrison health, incoming/outgoing damage, arrivals, losses, hold
+   state, and counteroffensive pressure have visible board feedback. Effects
+   explain state changes; they do not substitute for them.
+7. **Take and contest ground.** Breaking a garrison is not capture. Assault/
+   occupation-capable formations must hold the territory. Nation-final waves
+   apply pressure at a real front and can create a temporary local setback,
+   while the long-run empire remains a ratchet rather than an offline-punishment
+   game.
+8. **One story at every zoom.** FAR answers where HQ, fronts, routes, pressure,
+   and ownership are. MID answers which formations are moving to which battle
+   and who is winning. CLOSE answers what unit classes are doing and why health
+   is changing. Money remains top-center; controls never fight the map.
+9. **Idle-game clarity.** Buying, automating, researching, and routing remain
+   at most two taps. A purchase creates visible movement within two seconds.
+   Offline simulation advances the same production, transit, combat, and
+   capture state and reports it honestly on return.
+
+Anything short of this chain is scaffolding, not the final product.
+
+**Implementation status (2026-07-20 causal-war overhaul):** items 1–6, 8, and
+the deterministic/offline portion of 9 now exist as one saved causal chain:
+HQ-origin waves, future-only routing, class-specific visible transit, persistent
+front formations, composition-aware combat/casualties, targeted final waves,
+garrison/wave/occupation HUD state, and zoom-specific symbology. Exact local
+gate: 25/25 Vitest plus all 23 mobile E2E assertions. Remaining North-Star depth
+is explicit rather than hidden: front-to-front redeployment travel after a
+capture, an actual temporary territory retreat from an overwhelming final wave,
+and banked (not merely cooldown) strike stockpiles.
+
 **MARATHON STATUS (2026-07-19, ~03:00):** v0.4a + v0.4b SHIPPED and live. Test suite: 18 vitest sim tests (test/sim.test.ts + balance harness) + 16-assert Playwright E2E (test/e2e.py) — the "everything works when I'm back" guarantee; run `npm test` and `py -3.12 test/e2e.py`. Balance: garrisons ×11/ring after the harness caught a 1-hour continent collapse; conquest now decelerates (first nation in minutes, 6/8 nations by h9 sim, deep rings gate for days). Four fork-reviewer rounds implemented: sprite labels (killed baked-text blur), cold-nation/gold-empire ownership script, contested = cold fill + gold hatch + dashed ring + scorch, per-front pickets + hold-phase remnants (war is two-sided at every zoom), streaming rear-spawn reinforcements, flyer ground-shadows, flat momentum arrows, conquest gold shockwaves, ambient convoys, branded annexed labels, industry clusters, continent camera clamp, strike chrome chip, onboarding toasts. Reviewer verdict at round 4: far=PASS, mid=PASS, close=PASS-after-remnant-fix (verify round 5).
 
 ---

@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-20 (unit-origin UX gap identified after live verification)*
+*Last update: 2026-07-20 (causal-war overhaul final local gate green; deploy next)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -20,7 +20,7 @@ token from `git credential fill`).
 ## Build / test / deploy (the loop for EVERY change)
 - Node lives at `C:\Users\bhump\tools\node-v24.18.0-win-x64` (NOT on PATH —
   prefix it). Python via `py -3.12` (has playwright, PIL, numpy, gdown).
-- `npm run build` (tsc + vite) → `npm test` (22 vitest sim tests incl. balance
+- `npm run build` (tsc + vite) → `npm test` (25 vitest sim tests incl. balance
   harness) → `py -3.12 test/e2e.py` (23 assertions vs built dist; writes
   screenshots to test/artifacts/e2e_{far,mid,close}.png).
 - Visual change? → fork-Fable harsh review of the three artifacts (see gate).
@@ -29,16 +29,58 @@ token from `git credential fill`).
 - Commit style: end with Co-Authored-By Claude + Claude-Session link.
 
 ## Current state (all deployed & green unless noted)
-- **NEW DIRECT FEEDBACK / NEXT FIX:** Bridger cannot tell where delivered units
-  come from. This is a real implementation gap, not merely unclear labeling.
-  `productionTick` adds a completed batch directly to `LineState.army`.
-  Representative battle pieces then materialize only 12–22 world units behind
-  their assigned front, displaced in the direction of `homeCenter`; they do not
-  travel from HQ. The intermittent ScoutCar convoys are the only visuals that
-  actually originate at homeland center, and they are cosmetic/not tied to the
-  delivered class. Next implementation should make reinforcements visibly
-  emerge from a readable HQ/staging origin and preserve the class identity en
-  route, or explicitly choose front staging depots if Bridger prefers that.
+- **CURRENT DIRECTIVE / SUPERSEDES CHECKPOINT THINKING:** Bridger rejected the
+  pattern of explaining isolated gaps after deployment. He ordered a wide look
+  at what the final product must be, followed by implementation with no
+  shortcutting. The operative product is the North Star itself: a premium
+  board-game war ant farm where a production purchase creates an identifiable
+  class at HQ, that class visibly travels to its selected/automatic front,
+  joins a formation, fights with its real stats and role, takes visible damage,
+  affects occupation/counterattack, and changes ownership/income. Strategic,
+  operational, and close zooms must tell the same causal story. Current work is
+  auditing and replacing the entire production→transit→front→combat→capture
+  chain before another deploy claim; continuity updates occur at each material
+  milestone.
+- **LOCAL CAUSAL REINFORCEMENT MILESTONE (not deployed):** save schema v5 now
+  persists front-local class formations plus real reinforcement waves. A
+  completed batch is paid for and dispatched from the deterministic homeland
+  HQ to a specific live front with class-specific travel duration; it grants no
+  combat power until arrival. AUTO sends future output to the weakest pressure-
+  adjusted front, while DIRECT affects only future waves and never teleports a
+  formation already fighting. Casualties mutate that front's surviving class
+  mix. The renderer deleted cosmetic generic convoys: every visible route now
+  comes from saved state, carries the delivered class model, starts at a
+  physical pulsing HQ pad, and terminates at its actual assigned front. Non-hot
+  pickets and hot-front pieces now use their own formation composition instead
+  of the global arsenal. Automated microbatches aggregate deterministically so
+  eight-hour offline catch-up remains phone-safe. `npm test -- --run` is 24/24
+  (including transit/arrival/no-teleport/save-v5 invariants) and production
+  build passes; superseded by the final local gate immediately below.
+- **FINAL LOCAL CAUSAL-WAR GATE (deploy next):** exact bundles are
+  `index-BTWAVXXV.js` + `index-BlJBatsP.css`. Production now creates saved,
+  class-specific HQ→front waves; no army/combat power exists before arrival.
+  AUTO targets the weakest pressure-adjusted live formation and ROUTE changes
+  only future output. Every front persists its own class mix; casualties mutate
+  that formation. Nation-final counteroffensives select and attack one real
+  front rather than the anonymous global army. UI rows distinguish FIELD from
+  MOVING; the top HUD shows compact field/HQ-route/front totals, garrison health,
+  final-wave health, and a truthful 60s SECURING countdown after defense breaks.
+  Renderer routes originate at the exact visible `★ HOME / HQ` pad, are deduped
+  per destination, show strategic beads and operational class models, and hide
+  inside the close battle frame. Fake ScoutCar convoys and arrival shockwaves
+  are gone; routine blasts and border strokes were reduced. Far/mid/close phone
+  artifacts were regenerated repeatedly and harshly inspected as a whole.
+  TypeScript/Vite pass; Vitest 25/25 in 2.33s; full 23-assert, ~120s phone E2E is
+  all green with zero console errors. The higher-level runtime instruction did
+  not permit a fork reviewer, so the primary agent performed the mandated harsh
+  artifact review and logged each rejected iteration in this directive.
+- **HONEST NEXT SIM DEPTH (not a blocker for this overhaul deploy):** surviving
+  formations visually advance after capture but front-to-front redeployment is
+  still instantaneous in simulation; counteroffensives inflict local formation
+  losses/stall the targeted front but do not yet flip a recently held territory;
+  callable strikes remain cooldown capabilities rather than banked stockpiles.
+  These are the next North-Star operational layers—not reasons to regress the
+  now-complete HQ→transit→arrival→local-combat causal chain.
 - **LOCAL, NOT DEPLOYED (23:46):** the rejection pass now has a real combat
   foundation in `src/game/combat.ts` and per-line profiles in `content.ts`.
   Every class has health, effective health/armor, damage, fire rate, range,

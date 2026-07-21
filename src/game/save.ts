@@ -36,6 +36,29 @@ export function load(): GameState | null {
       lines.push({ ...newLineState(), ...(parsed.lines?.[i] ?? {}) });
     }
     gs.lines = lines;
+    gs.deployments = Object.fromEntries(Object.entries(gs.deployments ?? {}).map(([tid, units]) => {
+      const safe = new Array(LINES.length).fill(0);
+      if (Array.isArray(units)) {
+        for (let i = 0; i < LINES.length; i++) safe[i] = Math.max(0, Number(units[i]) || 0);
+      }
+      return [tid, safe];
+    }));
+    gs.reinforcements = (gs.reinforcements ?? []).filter(w =>
+      w && Number.isFinite(w.line) && w.line >= 0 && w.line < LINES.length && Number(w.count) > 0
+    ).map(w => ({
+      ...w,
+      count: Math.max(0, Number(w.count) || 0),
+      progress: Math.max(0, Math.min(1, Number(w.progress) || 0)),
+      duration: Math.max(0.25, Number(w.duration) || 1)
+    }));
+    gs.nextReinforcementId = Math.max(1, Number(gs.nextReinforcementId) || 1);
+    if (gs.wave) {
+      gs.wave = {
+        ...gs.wave,
+        targetTid: Number.isFinite(gs.wave.targetTid) ? gs.wave.targetTid : -1
+      };
+    }
+    gs.version = 5;
     return gs;
   } catch {
     return null;

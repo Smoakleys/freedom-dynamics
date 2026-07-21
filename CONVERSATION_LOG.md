@@ -240,3 +240,34 @@
   active front in the homeland direction, not at HQ. Only cosmetic generic
   ScoutCar convoys actually depart homeland center. Recorded as a real unit-
   origin/continuity gap for the next implementation pass.
+- Bridger rejected waiting on the isolated unit-origin gap and ordered a wide,
+  no-expense pass: determine exactly what the final product should be and then
+  implement it, with no slacking. Agent accepted that the final product is the
+  complete causal war-ant-farm chain, not a succession of visual checkpoints,
+  and began a full product/state/renderer/UI audit against the North Star.
+- Material implementation milestone: production no longer increments invisible
+  global power. Save schema v5 persists HQ-origin reinforcement waves and
+  surviving front-local class formations; AUTO targets the weakest pressured
+  front, DIRECT changes only future deliveries, and combat power arrives only
+  when the wave reaches its saved destination. Casualties now mutate the exact
+  formation involved. Replaced fake generic ScoutCar theater with real saved
+  class-specific transit routes, added a physical HQ dispatch pad, and made
+  close/secondary-front pieces reflect their local formation composition.
+  Aggregated automated microbatches after the first implementation exposed a
+  genuine offline performance regression. New transit/no-teleport/save tests
+  bring Vitest to 24/24 in 2.36s; TypeScript and Vite production build pass.
+  This is a local causal-sim milestone, not yet a visual gate or deployment.
+- Wide causal-war implementation completed locally. Added truthful class-
+  specific HQ dispatch/transit/arrival state, pressure-aware AUTO routing,
+  future-only manual ROUTE, persistent per-front formations, localized class
+  casualties, and targeted final counteroffensives. Rebuilt the renderer around
+  saved routes from the exact visible HQ, zoom-specific route/bead/model layers,
+  and front-local formation visuals; deleted fake convoys. Reworked the compact
+  UI around FIELD vs MOVING totals and garrison/wave/SECURING health states.
+  Harsh phone review rejected and fixed four iterations: buried routes plus a
+  mismatched HQ coordinate; giant lying arrival rings; empty garrison UI during
+  occupation; and route ribbons intruding into close battle. Final exact build
+  is `index-BTWAVXXV.js` + `index-BlJBatsP.css`; 25/25 Vitest and all 23 mobile
+  E2E assertions pass with zero console errors. Final far/mid/close artifacts
+  pass the full composition gate. Deploy is next; remaining North-Star depth is
+  explicitly front-to-front travel, territory-retaking waves, and stockpiles.

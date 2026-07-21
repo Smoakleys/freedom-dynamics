@@ -41,3 +41,32 @@ premium board game / Polytopia-clean — never busy, never procedural-looking.
   Dense panels, redundant decoration, and always-on effects must earn space.
 - Mood boards/AI frames are for DIRECTION only; approval requires
   code-rendered output (he judges implementations, not vibes).
+
+## 2026-07-20 causal-war gate
+
+Exact reviewed build: `index-BTWAVXXV.js` + `index-BlJBatsP.css`; artifacts are
+`test/artifacts/e2e_{far,mid,close}.png` at a 390×844 CSS viewport / 2× capture.
+The active runtime prohibited spawning a fork reviewer, so the primary agent
+performed the harsh whole-frame review rather than skipping the gate.
+
+- Rejected iteration 1: saved routes existed but one-pixel lines disappeared
+  into the border/depth hierarchy; the physical dispatch pad also used an old
+  homeland-average coordinate while the visible HQ label used the northern
+  phone-safe province. Fixed with one exact HQ coordinate and screen-readable
+  depth-independent route ribbons.
+- Rejected iteration 2: reinforcement arrivals reused conquest shockwaves,
+  creating giant rings and false capture emphasis. Removed them and reduced
+  routine blast scale.
+- Rejected iteration 3: broken garrisons read as an empty `GARRISON 0%` bar.
+  Replaced with a filling `SECURING Ns` occupation state.
+- Rejected iteration 4: operational ribbons remained visible at close zoom and
+  resembled oversized tracers. Routes now hide inside the battle frame.
+- Final verdict: FAR passes—exact HQ origin, restrained destination flow,
+  ownership, centered money, and occupation state are immediately readable;
+  fixed units are absent. MID passes—tiny class silhouettes and localized
+  combat are visible without route/label overload. CLOSE passes—small fixed-
+  world units, shadows, range separation, and reduced effects; no strategic
+  route overlay. The compact drawer retains five routine lines and the complete
+  HUD stays within the phone viewport. Secondary-front pickets also refresh on
+  coarse class/strength changes rather than retaining stale silhouettes.
+  Automated interaction/geometry gate is all green with zero console errors.
