@@ -234,3 +234,9 @@
   Authenticated Pages status reported the exact deploy commit built. A
   cache-busted request to the public `index.html` returned the expected new
   `index-BlYRmRLD.js` and `index-DcUIU8zD.css`, so the live game is verified.
+- Bridger asked where sent units are spawning because their origin is not
+  visible. Audit answer: completed batches are added directly to the global
+  class army; representative pieces materialize 12–22 world units behind the
+  active front in the homeland direction, not at HQ. Only cosmetic generic
+  ScoutCar convoys actually depart homeland center. Recorded as a real unit-
+  origin/continuity gap for the next implementation pass.

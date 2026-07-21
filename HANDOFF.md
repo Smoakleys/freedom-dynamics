@@ -1,6 +1,6 @@
 # HANDOFF — Freedom Dynamics
 *Continuously updated. Any agent must be able to resume from this file alone.*
-*Last update: 2026-07-20 ~00:07 (rejection-pass deployed and live-verified)*
+*Last update: 2026-07-20 (unit-origin UX gap identified after live verification)*
 
 ## What this is
 Defense-contractor idle game ("Warlord Corp" PMC fiction) for Bridger's iPhone.
@@ -29,6 +29,16 @@ token from `git credential fill`).
 - Commit style: end with Co-Authored-By Claude + Claude-Session link.
 
 ## Current state (all deployed & green unless noted)
+- **NEW DIRECT FEEDBACK / NEXT FIX:** Bridger cannot tell where delivered units
+  come from. This is a real implementation gap, not merely unclear labeling.
+  `productionTick` adds a completed batch directly to `LineState.army`.
+  Representative battle pieces then materialize only 12–22 world units behind
+  their assigned front, displaced in the direction of `homeCenter`; they do not
+  travel from HQ. The intermittent ScoutCar convoys are the only visuals that
+  actually originate at homeland center, and they are cosmetic/not tied to the
+  delivered class. Next implementation should make reinforcements visibly
+  emerge from a readable HQ/staging origin and preserve the class identity en
+  route, or explicitly choose front staging depots if Bridger prefers that.
 - **LOCAL, NOT DEPLOYED (23:46):** the rejection pass now has a real combat
   foundation in `src/game/combat.ts` and per-line profiles in `content.ts`.
   Every class has health, effective health/armor, damage, fire rate, range,
