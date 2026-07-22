@@ -349,3 +349,74 @@ commit `4a56f7fe38003726aba8c80214d9f1f8986e2be7`. Cache-busted live HTML served
 the exact gated `index-gAF3_Ijj.js`, and `git ls-remote` matched the deployed
 commit. The isolated generated deployment directory remains in the Windows
 temp folder because the safety guard rejected recursive cleanup.
+
+## 2026-07-21 — Super-critical post-deploy visual audit
+
+**Bridger:** “Analyze it yourself, SUPER critically on the visuals.”
+
+**Agent:** Reopened the previous three-view PASS as untrusted and began a
+review-only audit of the deployed phone composition. The audit will judge
+Command, Theater, Engagement, the transitions between them, unit/class
+readability, map authorship, HUD/drawer hierarchy, and control chrome against
+the premium board-game/App-Store bar. Findings will be ranked and separated
+into bug-class failures versus taste; no visual fix is claimed or authorized
+yet.
+
+**Audit result:** The prior PASS is revoked. A live 390×844 review exposed a
+material artifact-preview blind spot: routine text is 7–11px, map controls are
+28px square, and primary production actions are 34px high. Command is the only
+view with a coherent visual job, but route ribbons, weak label contrast,
+generated-looking land shapes, ticker noise, and a mismatched dense drawer keep
+it below the premium bar. Theater is essentially Command magnified with a few
+territory chips and near-invisible specks; it does not show formation movement,
+class composition, or who is winning. Engagement is a generic cutaway made
+from two rectangular flat fields, a uniform dark strip, and repeated scratch
+texture. It abandons border curvature and place identity, concentrates ringed
+tokens in a tiny knot, leaves most of the expanded battlefield empty, and
+makes contact/health rings more legible than the unit classes. Random visual
+tracers/explosions and proxy health arcs do not explain the real deterministic
+combat state. This is a structural redesign requirement, not an effects/polish
+pass. Positive elements to preserve: three authored views, fixed-world units,
+centered money, visible ★ HOME / HQ, stable page width, and error-free runtime.
+
+**Bridger:** Reported that images rarely load when the agent provides them and
+ordered diagnosis and correction.
+
+**Agent:** Identified the delivery failure: the prior response supplied local
+Windows paths as Markdown navigation links rather than attaching PNG image
+data. Client-side resolution of `/C:/...` is unreliable and does not embed an
+image. Locked a new continuity rule that visual reviews must emit the actual
+image payload, with file links only as optional secondary references, and
+re-provided the Command, Theater, and Engagement artifacts as attachments.
+
+**Bridger:** Requested the three audit images again. Agent re-attached the
+Command, Theater, and Engagement PNG payloads directly, without relying on
+local Markdown links.
+
+**Bridger:** Reported that those payloads still were not displayed.
+
+**Agent:** Corrected the diagnosis: image outputs emitted in the working stream
+can be collapsed when the final response renders, so they are not a dependable
+user-facing attachment surface in this client. Verified that all three tracked
+artifacts return HTTP 200 with `image/png` content from GitHub Raw and switched
+delivery to final-response HTTPS image embeds.
+
+**Bridger:** Reacted to the Engagement frame: the units look like they are just
+on the map, remain too tiny to make an impact against the background, and the
+image does not deliver a strong zoomed-in view. Requested that the frame be
+given to a separate agent with a small amount of context and explicitly asked
+that the review not be biased.
+
+**Agent:** Started a fresh-context independent review. Supplied only the close
+artifact, the Command/Theater/Engagement premise, the fixed-world-unit rule,
+and Bridger's exact concern; withheld the primary agent's earlier diagnosis and
+solutions.
+
+## 2026-07-22 — Codex launched
+- Bridger: "Launch codex." → Located Codex CLI (config: gpt-5.6-sol, full
+  access, logged in) and launched `codex exec` on the repo with the standing
+  HANDOFF directive: INDEPENDENT Engagement-view critique, limited context
+  only (e2e_close.png + three-view premise + fixed-unit-scale constraint +
+  Bridger's concern verbatim; no preloaded diagnosis, review-only, no file
+  edits). Output captured; findings to be relayed and cross-checked against
+  the Claude-side audit when Codex finishes.
