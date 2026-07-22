@@ -420,3 +420,11 @@ solutions.
   Bridger's concern verbatim; no preloaded diagnosis, review-only, no file
   edits). Output captured; findings to be relayed and cross-checked against
   the Claude-side audit when Codex finishes.
+- Codex review returned (saved: docs/reviews/codex_engagement_review_2026-07-22.md).
+  Verdict: "not an Engagement view — a strategic map viewed closer." Top failures:
+  no legible battle; ground still abstract map; border stripe dominates; units
+  read as map pins (integration, not scale, is the problem); identity/state
+  confusion; no focal point; weather flattens; UI reads economy-not-battle.
+  Fix doctrine: enlarge CONSEQUENCES not units; source→target paired effects;
+  staged opposing forces; contested corridor instead of black stripe; close-only
+  terrain detail; disciplined marker language; acceptance bar = 6 glance tests.
